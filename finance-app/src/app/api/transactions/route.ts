@@ -1,175 +1,117 @@
-import { NextResponse } from "next/server";
-import type { Transaction } from "@/types/transaction";
+import { NextRequest, NextResponse } from "next/server"
+import { pool } from "@/lib/db"
 
-export async function GET(request: Request) {
-  const { searchParams } = new URL(request.url);
+type TransactionBody = {
+  date: string
+  amount: number
+  description?: string
+  category: string
+  account_id: string
+}
 
-  const account = searchParams.get("account");
-  const month = searchParams.get("month"); // YYYY-MM
+//Gets all transactions from this month
+export async function GET(req: NextRequest) {
+  try {
+    const { searchParams } = new URL(req.url)
 
-  // TEMP: fake data
-    const fakeTransactions = [
-        {
-            id: "tx_001",
-            date: "2026-01-02",
-            merchant: "Trader Joe's",
-            category: "Groceries",
-            amount: 86.42,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_002",
-            date: "2026-01-03",
-            merchant: "Shell",
-            category: "Gas",
-            amount: 47.18,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_003",
-            date: "2026-01-04",
-            merchant: "Starbucks",
-            category: "Dining",
-            amount: 6.75,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_004",
-            date: "2026-01-05",
-            merchant: "Amazon",
-            category: "Shopping",
-            amount: 129.99,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_005",
-            date: "2026-01-06",
-            merchant: "Whole Foods",
-            category: "Groceries",
-            amount: 112.34,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_006",
-            date: "2026-01-07",
-            merchant: "Netflix",
-            category: "Subscriptions",
-            amount: 15.99,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_007",
-            date: "2026-01-08",
-            merchant: "Uber",
-            category: "Transport",
-            amount: 23.40,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_008",
-            date: "2026-01-09",
-            merchant: "Chipotle",
-            category: "Dining",
-            amount: 18.62,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_009",
-            date: "2026-01-10",
-            merchant: "Costco",
-            category: "Groceries",
-            amount: 246.81,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_010",
-            date: "2026-01-11",
-            merchant: "Apple",
-            category: "Tech",
-            amount: 9.99,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_011",
-            date: "2026-01-12",
-            merchant: "Target",
-            category: "Shopping",
-            amount: 54.23,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_012",
-            date: "2026-01-13",
-            merchant: "Spotify",
-            category: "Subscriptions",
-            amount: 10.99,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_013",
-            date: "2026-01-14",
-            merchant: "CVS Pharmacy",
-            category: "Health",
-            amount: 28.67,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_014",
-            date: "2026-01-15",
-            merchant: "Home Depot",
-            category: "Home",
-            amount: 92.15,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_015",
-            date: "2026-01-16",
-            merchant: "McDonald's",
-            category: "Dining",
-            amount: 11.48,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_016",
-            date: "2026-01-17",
-            merchant: "REI",
-            category: "Shopping",
-            amount: 184.72,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_017",
-            date: "2026-01-18",
-            merchant: "Electric Company",
-            category: "Utilities",
-            amount: 132.06,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_018",
-            date: "2026-01-19",
-            merchant: "Water Utility",
-            category: "Utilities",
-            amount: 48.91,
-            accountId: "Checking",
-        },
-        {
-            id: "tx_019",
-            date: "2026-01-20",
-            merchant: "Airbnb",
-            category: "Travel",
-            amount: 312.44,
-            accountId: "Credit",
-        },
-        {
-            id: "tx_020",
-            date: "2026-01-21",
-            merchant: "Local Coffee Shop",
-            category: "Dining",
-            amount: 5.25,
-            accountId: "Checking",
-        },
-    ];
+    const monthParam = searchParams.get("month")
+    const yearParam = searchParams.get("year")
+    const category = searchParams.get("category")
 
-  return NextResponse.json(fakeTransactions);
+    if (!monthParam || !yearParam) {
+      return NextResponse.json(
+        { error: "Month and year are required" },
+        { status: 400 }
+      )
+    }
+
+    const month = Number(monthParam)
+    const year = Number(yearParam)
+
+    if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
+      return NextResponse.json(
+        { error: "Invalid month or year" },
+        { status: 400 }
+      )
+    }
+
+    // Use date range instead of EXTRACT (index friendly)
+    const startDate = new Date(year, month - 1, 1)
+    const endDate = new Date(year, month, 1)
+
+    let query = `
+      SELECT *
+      FROM "Transactions"
+      WHERE date >= $1 AND date < $2
+    `
+
+    const values: any[] = [startDate, endDate]
+
+    if (category) {
+      query += ` AND category = $3`
+      values.push(category)
+    }
+
+    const result = await pool.query(query, values)
+
+    return NextResponse.json(result.rows)
+
+  } catch (error) {
+    console.error("GET /transactions error:", error)
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
+  }
+}
+
+// Posts a transaction
+export async function POST(req: NextRequest) {
+  try {
+    const body: TransactionBody = await req.json()
+
+    const { date, amount, description, category, account_id } = body
+
+    if (
+      !date ||
+      amount === undefined ||
+      !category ||
+      !account_id
+    ) {
+      return NextResponse.json(
+        { error: "Missing required fields" },
+        { status: 400 }
+      )
+    }
+
+    const parsedAmount = Number(amount)
+
+    if (isNaN(parsedAmount)) {
+      return NextResponse.json(
+        { error: "Invalid amount" },
+        { status: 400 }
+      )
+    }
+
+    const result = await pool.query(
+      `
+      INSERT INTO "Transactions"
+      (date, amount, description, category, created_at, account_id)
+      VALUES ($1, $2, $3, $4, NOW(), $5)
+      RETURNING *
+      `,
+      [date, parsedAmount, description ?? null, category, account_id]
+    )
+
+    return NextResponse.json(result.rows[0], { status: 201 })
+
+  } catch (error) {
+    console.error("POST /transactions error:", error)
+
+    return NextResponse.json(
+      { error: "Internal Server Error" },
+      { status: 500 }
+    )
+  }
 }
