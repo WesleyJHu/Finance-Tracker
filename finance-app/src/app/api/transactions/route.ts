@@ -115,3 +115,81 @@ export async function POST(req: NextRequest) {
     )
   }
 }
+
+// Edits an existing transaction
+export async function PATCH(req: NextRequest) {
+    try {
+        const body = await req.json()
+        const { id, date, amount, description, category } = body
+
+        if (!id) {
+            return NextResponse.json({ error: "Transaction ID is required" }, { status: 400 })
+        }
+
+        const parsedAmount = amount !== undefined ? Number(amount) : undefined
+
+        if (amount !== undefined && isNaN(parsedAmount!)) {
+            return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
+        }
+
+        const result = await pool.query(
+            `
+            UPDATE "Transactions"
+            SET
+                date = COALESCE($1, date),
+                amount = COALESCE($2, amount),
+                description = COALESCE($3, description),
+                category = COALESCE($4, category),
+                account_id = COALESCE($5, account_id)
+            WHERE id = $6
+            RETURNING *
+            `,
+            [
+                date ?? null,
+                parsedAmount ?? null,
+                description ?? null,
+                category ?? null,
+                body.account_id ?? null,
+                id
+            ]
+        )
+
+        if (result.rowCount === 0) {
+            return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+        }
+
+        return NextResponse.json(result.rows[0])
+    } catch (error) {
+        console.error("PATCH /transactions error:", error)
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+    }
+}
+
+// Deletes a transaction
+export async function DELETE(req: NextRequest) {
+    try {
+        const body = await req.json()
+        const { id } = body
+
+        if (!id) {
+            return NextResponse.json({ error: "Transaction ID is required" }, { status: 400 })
+        }
+        const result = await pool.query(
+            `
+            DELETE FROM "Transactions"
+            WHERE id = $1
+            RETURNING *
+            `,
+            [id]
+        )
+
+        if (result.rowCount === 0) {
+            return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+        }
+
+        return NextResponse.json({ message: "Transaction deleted successfully" })
+    } catch (error) {
+        console.error("DELETE /transactions error:", error)
+        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+    }
+}
