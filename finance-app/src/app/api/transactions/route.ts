@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { pool } from "@/lib/db"
 
+export const runtime = "nodejs"
+
 type TransactionBody = {
   date: string
   amount: number
@@ -41,7 +43,7 @@ export async function GET(req: NextRequest) {
 
     let query = `
       SELECT *
-      FROM "Transactions"
+      FROM "transactions"
       WHERE date >= $1 AND date < $2
     `
 
@@ -96,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     const result = await pool.query(
       `
-      INSERT INTO "Transactions"
+      INSERT INTO "transactions"
       (date, amount, description, category, created_at, account_id)
       VALUES ($1, $2, $3, $4, NOW(), $5)
       RETURNING *
@@ -134,7 +136,7 @@ export async function PATCH(req: NextRequest) {
 
         const result = await pool.query(
             `
-            UPDATE "Transactions"
+            UPDATE "transactions"
             SET
                 date = COALESCE($1, date),
                 amount = COALESCE($2, amount),
@@ -176,7 +178,7 @@ export async function DELETE(req: NextRequest) {
         }
         const result = await pool.query(
             `
-            DELETE FROM "Transactions"
+            DELETE FROM "transactions"
             WHERE id = $1
             RETURNING *
             `,
