@@ -58,8 +58,11 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(result.rows)
 
-  } catch (error) {
+  } catch (error: any) {
     console.error("GET /transactions error:", error)
+    console.error(error)
+    console.error(error.message)
+    console.error(error.detail)
 
     return NextResponse.json(
       { error: "Internal Server Error" },
@@ -108,11 +111,14 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(result.rows[0], { status: 201 })
 
-  } catch (error) {
-    console.error("POST /transactions error:", error)
+  } catch (error: any) {
+    console.error("POST /transactions error:")
+    console.error(error)
+    console.error(error.message)
+    console.error(error.detail)
 
     return NextResponse.json(
-      { error: "Internal Server Error" },
+      { error: error.message },
       { status: 500 }
     )
   }
@@ -161,8 +167,11 @@ export async function PATCH(req: NextRequest) {
         }
 
         return NextResponse.json(result.rows[0])
-    } catch (error) {
+    } catch (error: any) {
         console.error("PATCH /transactions error:", error)
+        console.error(error)
+        console.error(error.message)
+        console.error(error.detail)
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
     }
 }
@@ -190,8 +199,12 @@ export async function DELETE(req: NextRequest) {
         }
 
         return NextResponse.json({ message: "Transaction deleted successfully" })
-    } catch (error) {
+    } catch (error: any) {
         console.error("DELETE /transactions error:", error)
+        console.error(error)
+        console.error(error.message)
+        console.error(error.detail)
+        
         return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
     }
 }
