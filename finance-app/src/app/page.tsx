@@ -4,6 +4,7 @@ import React from 'react';
 import Card from '../components/AccountCard';
 import TestTransactionApiButton from '@/components/TestTransactionApiButton';
 import TestAccountApiButton from '@/components/TestAccountApiButton';
+import TestBudgetApiButton from '@/components/TestBudgetApiButton';
 
 export default function AboutPage() {
   return (
@@ -12,6 +13,7 @@ export default function AboutPage() {
       <Card name="Fidelity Credit Card" limit={6500} value={4200} />
       <TestTransactionApiButton />
       <TestAccountApiButton />
+      <TestBudgetApiButton />
     </main>
   );
 }

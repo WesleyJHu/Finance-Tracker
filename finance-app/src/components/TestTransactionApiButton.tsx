@@ -71,28 +71,28 @@ export default function TestApiPanel() {
         onClick={testGET}
         className="bg-blue-500 text-white px-3 py-1 rounded"
       >
-        Test GET
+        Test Transaction GET
       </button>
 
       <button
         onClick={testPOST}
         className="bg-green-500 text-white px-3 py-1 rounded"
       >
-        Test POST
+        Test Transaction POST
       </button>
 
       <button
         onClick={testPATCH}
         className="bg-yellow-500 text-white px-3 py-1 rounded"
       >
-        Test PATCH
+        Test Transaction PATCH
       </button>
 
       <button
         onClick={testDELETE}
         className="bg-red-500 text-white px-3 py-1 rounded"
       >
-        Test DELETE
+        Test Transaction DELETE
       </button>
 
     </div>
