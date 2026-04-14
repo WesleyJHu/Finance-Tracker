@@ -12,8 +12,6 @@ const Card: React.FC<CardProps> = ({
   type,
   limit,
   value,
-  size = 150,
-  strokeWidth = 20,
   onUpdate,
   onDelete,
 }) => {
@@ -22,12 +20,9 @@ const Card: React.FC<CardProps> = ({
   const [isOpen, setIsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const progress = Math.min(Math.max(value / limit, 0), 1);
-  const offset = circumference * (1 - progress);
+  const limitUsed = limit ? Math.round((Math.abs(value) / limit) * 100) : 0;
 
-  const handleAccountUpdate = (updated: { id: string; name: string; type: string; balance?: number; max?: number }) => {
+  const handleAccountUpdate = (updated: { id: string; name: string; type: string; balance: number; max?: number }) => {
     setAccountName(updated.name);
     setAccountType(updated.type);
     onUpdate?.(updated);
@@ -41,26 +36,10 @@ const Card: React.FC<CardProps> = ({
 
   return (
     <>
-      {/* CARD */}
-      <div
-        onClick={() => setIsOpen(true)}
-        className={`
-          relative
-          bg-accent
-          rounded-lg
-          border-4
-          cursor-pointer
-          transition
-          w-100 h-65
-          ${
-            isOpen
-              ? "border-blue-500 ring-4 ring-blue-300"
-              : "border-black hover:shadow-lg"
-          }
-        `}
-      >
+      <div className="relative rounded-3xl bg-white p-6 shadow-sm border border-slate-200 cursor-pointer" onClick={() => setIsOpen(true)}>
         <button
           type="button"
+          title="Edit account"
           onClick={(event) => {
             event.stopPropagation();
             setEditOpen(true);
@@ -69,48 +48,13 @@ const Card: React.FC<CardProps> = ({
         >
           Edit
         </button>
-
-        {/* Title */}
-        <div className="text-center font-bold text-4xl border-b-4 border-black p-2">
-          {accountName}
+        <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{accountType}</p>
+        <h2 className="mt-4 text-xl font-semibold text-slate-900">{accountName}</h2>
+        <p className="mt-3 text-sm text-slate-500">{formatCurrency(Math.abs(value))} / {formatCurrency(limit)}</p>
+        <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
+          <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${Math.min(limitUsed, 100)}%` }} />
         </div>
-
-        {/* Donut + numbers */}
-        <div className="flex items-center justify-center pt-4 pr-4">
-          <svg width={size} height={size} className="mr-10">
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              stroke="#2bed21"
-              strokeWidth={strokeWidth}
-              fill="transparent"
-            />
-            <circle
-              cx={size / 2}
-              cy={size / 2}
-              r={radius}
-              stroke="#ff2e1f"
-              strokeWidth={strokeWidth}
-              fill="transparent"
-              strokeDasharray={circumference}
-              strokeDashoffset={offset}
-              strokeLinecap="round"
-              transform={`rotate(-90 ${size / 2} ${size / 2})`}
-            />
-          </svg>
-
-          <div className="flex flex-col text-center font-bold text-4xl">
-            <span>{formatCurrency(value)}</span>
-            <span className="border-t-4 border-black">
-              {formatCurrency(limit)}
-            </span>
-          </div>
-        </div>
-
-        <div className="text-center text-md text-gray-500">
-          {accountType} • {formatCurrency(limit - value)} remaining
-        </div>
+        <p className="mt-2 text-sm text-slate-500">{limitUsed}% limit used</p>
       </div>
 
       {/* MODALS */}

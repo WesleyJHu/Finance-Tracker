@@ -6,6 +6,6 @@ export interface CardProps {
   value: number;
   size?: number;
   strokeWidth?: number;
-  onUpdate?: (account: { id: string; name: string; type: string; balance?: number; max?: number }) => void;
+  onUpdate?: (account: { id: string; name: string; type: string; balance: number; max?: number }) => void;
   onDelete?: (id: string) => void;
 }

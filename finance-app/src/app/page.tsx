@@ -3,7 +3,6 @@
 import React, { useEffect, useState } from 'react';
 import Card from '../components/AccountCard';
 import CreateAccountModal from '../components/CreateAccountModal';
-import BalanceCard from '../components/BalanceCard';
 
 interface Account {
   id: string;
@@ -38,30 +37,34 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
+  const handleAccountUpdate = (updatedAccount: { id: string; name: string; type: string; balance: number; max?: number }) => {
+    setAccounts(prev => prev.map(acc => acc.id === updatedAccount.id ? { ...acc, ...updatedAccount } : acc));
+  };
+
+  const handleAccountDelete = (id: string) => {
+    setAccounts(prev => prev.filter(acc => acc.id !== id));
+  };
+
   useEffect(() => {
     const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
 
-        // Get current month and year
         const now = new Date();
         const month = now.getMonth() + 1;
         const year = now.getFullYear();
 
-        // Fetch accounts
         const accountsRes = await fetch('/api/accounts');
         if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
         const accountsData = await accountsRes.json();
         setAccounts(accountsData);
 
-        // Fetch transactions for current month
         const transRes = await fetch(`/api/transactions?month=${month}&year=${year}`);
         if (!transRes.ok) throw new Error('Failed to fetch transactions');
         const transData = await transRes.json();
         setTransactions(transData);
 
-        // Fetch monthly budget
         const budgetRes = await fetch(`/api/monthly_budgets?month=${month}`);
         if (!budgetRes.ok) throw new Error('Failed to fetch budget');
         const budgetData = await budgetRes.json();
@@ -80,40 +83,45 @@ export default function Dashboard() {
   }, []);
 
   const formatCurrency = (num: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
+    new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: 'USD',
     }).format(num);
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
+  const formatDate = (dateString: string) =>
+    new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
     });
-  };
+
+  const totalExpenses = transactions
+    .filter((t) => t.category !== 'Income')
+    .reduce((sum, t) => sum + t.amount, 0);
+  const totalIncome = transactions
+    .filter((t) => t.category === 'Income')
+    .reduce((sum, t) => sum + t.amount, 0);
 
   const categoryTotals = transactions.reduce<Record<string, number>>((totals, transaction) => {
-    if (transaction.category === 'Income') return totals; // Exclude income from category totals
+    if (transaction.category === 'Income') return totals;
     const category = transaction.category || 'Uncategorized';
     totals[category] = (totals[category] || 0) + transaction.amount;
     return totals;
   }, {});
 
-  const totalExpenses = transactions.filter(t => t.category !== 'Income').reduce((sum, t) => sum + t.amount, 0);
-  const totalIncome = transactions.filter(t => t.category === 'Income').reduce((sum, t) => sum + t.amount, 0);
+  const sortedCategories = Object.entries(categoryTotals)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 4)
+    .map(([category, amount]) => ({ category, amount }));
 
-  const fixedCategories = ['grocery', 'food', 'technology', 'transportation', 'entertainment', 'bills', 'misc'];
-  const categoryCards = fixedCategories.map(category => ({
-    category,
-    total: categoryTotals[category] || 0
-  }));
+  const maxCategoryAmount = sortedCategories.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
+  const accountNameById = Object.fromEntries(accounts.map((account) => [account.id, account.name]));
 
   if (loading) {
     return (
-      <main className="min-h-screen bg-gray-50 p-8">
+      <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
         <div className="flex items-center justify-center h-screen">
-          <p className="text-2xl text-gray-600">Loading your financial data...</p>
+          <p className="text-2xl text-slate-600">Loading your financial data...</p>
         </div>
       </main>
     );
@@ -121,7 +129,7 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <main className="min-h-screen bg-gray-50 p-8">
+      <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
         <div className="flex items-center justify-center h-screen">
           <p className="text-2xl text-red-600">Error: {error}</p>
         </div>
@@ -130,51 +138,126 @@ export default function Dashboard() {
   }
 
   return (
-    <main className="min-h-screen bg-gray-50">
-      {/* Cards and Accounts Section */}
-      <section className="bg-white border-b-2 border-gray-200 p-8">
-        <div className="flex justify-between items-center mb-6">
-          <h2 className="text-4xl font-bold text-gray-800">Cards and Accounts</h2>
+    <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
+      <header className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-8">
+        <div className="flex flex-wrap gap-4 items-center text-slate-700">
+          <span className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Home</span>
+          <button className="text-sm text-slate-500 hover:text-slate-900 transition">Reports</button>
+          <button className="text-sm text-slate-500 hover:text-slate-900 transition">Settings</button>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => setShowCreateModal(true)}
+          className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800"
+        >
+          Add Transaction
+        </button>
+      </header>
+
+      <section className="mb-8">
+        <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Account Overview</p>
+            <h1 className="mt-2 text-3xl font-bold text-slate-900">Your Active Accounts</h1>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => setShowCreateModal(true)}
+              className="rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+            >
+              Link New Account
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-6 xl:grid-cols-4 lg:grid-cols-3 md:grid-cols-2">
+          {accounts.length === 0 ? (
+            <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
+              <p className="text-slate-500">No accounts found. Add one to get started.</p>
+            </div>
+          ) : (
+            accounts.slice(0, 3).map((account) => (
+              <Card
+                key={account.id}
+                id={account.id}
+                name={account.name}
+                type={account.type}
+                value={account.balance}
+                limit={account.max}
+                onUpdate={handleAccountUpdate}
+                onDelete={handleAccountDelete}
+              />
+            ))
+          )}
+
           <button
+            type="button"
             onClick={() => setShowCreateModal(true)}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2"
+            className="flex min-h-[176px] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-slate-400 hover:text-slate-800"
           >
-            <span className="text-xl">+</span>
-            Add Account
+            <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-2xl">+</span>
+            <span className="text-sm font-semibold">Link New Account</span>
           </button>
         </div>
-        <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100">
-          <div className="flex gap-6 pb-4 min-w-min">
-            {accounts.length === 0 ? (
-              <p className="text-gray-500 text-lg">No accounts found. Add one to get started!</p>
+      </section>
+
+      <section className="grid gap-6 xl:grid-cols-[1.8fr_1fr_1fr] mb-8">
+        <div className="rounded-3xl bg-slate-950 p-6 text-white shadow-lg shadow-slate-200/10">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Total Monthly Spending</p>
+              <p className="mt-4 text-4xl font-bold">{formatCurrency(totalExpenses)}</p>
+            </div>
+            <div className="rounded-3xl bg-slate-900 px-4 py-2 text-sm font-semibold text-emerald-300">+4.2%</div>
+          </div>
+          <div className="mt-8 flex items-end gap-2">
+            {Array.from({ length: 6 }).map((_, index) => (
+              <div
+                key={index}
+                className={`w-full rounded-xl bg-slate-800 ${index === 5 ? 'h-40' : index === 4 ? 'h-36' : index === 3 ? 'h-32' : index === 2 ? 'h-28' : index === 1 ? 'h-24' : 'h-20'}`}
+              />
+            ))}
+          </div>
+          <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(totalExpenses / 30)}</p>
+        </div>
+
+        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
+          <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Monthly Net Income</p>
+          <div className="mt-5 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-4xl font-bold text-slate-900">{formatCurrency(totalIncome)}</p>
+              <p className="mt-3 text-sm text-slate-500">Savings rate</p>
+            </div>
+            <div className="rounded-3xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">Stable</div>
+          </div>
+          <div className="mt-6 rounded-3xl bg-slate-50 p-4 text-center text-sm text-slate-500">
+            {monthlyBudget ? `${formatCurrency(monthlyBudget.base_budget)} base budget` : 'No budget data available'}
+          </div>
+        </div>
+
+        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
+          <div className="flex items-center justify-between">
+            <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Spending Categories</p>
+            <p className="text-sm font-semibold text-slate-900">{formatCurrency(totalExpenses)}</p>
+          </div>
+          <div className="mt-6 space-y-5">
+            {sortedCategories.length === 0 ? (
+              <p className="text-sm text-slate-500">No category spend data yet.</p>
             ) : (
-              accounts.map((account) => (
-                <div key={account.id} className="shrink-0">
-                  <Card
-                    id={account.id}
-                    name={account.name}
-                    type={account.type}
-                    limit={account.max || 6500}
-                    value={Math.abs(account.balance)}
-                    onUpdate={(updated) =>
-                      setAccounts((current) =>
-                        current.map((item) =>
-                          item.id === updated.id
-                            ? {
-                                ...item,
-                                name: updated.name,
-                                type: updated.type,
-                                balance: updated.balance ?? item.balance,
-                                max: updated.max ?? item.max,
-                              }
-                            : item
-                        )
-                      )
-                    }
-                    onDelete={(deletedId) =>
-                      setAccounts((current) => current.filter((item) => item.id !== deletedId))
-                    }
-                  />
+              sortedCategories.map((entry) => (
+                <div key={entry.category}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-sm font-semibold text-slate-900">{entry.category}</span>
+                    <span className="text-sm text-slate-500">{formatCurrency(entry.amount)}</span>
+                  </div>
+                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400"
+                      style={{ width: Math.round((entry.amount / maxCategoryAmount) * 100) + '%' }}
+                    />
+                  </div>
                 </div>
               ))
             )}
@@ -182,68 +265,47 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {/* Monthly Summary */}
-      {monthlyBudget && (
-        <section className="p-8 bg-white border-b-2 border-gray-200">
-          <h2 className="text-2xl font-bold mb-4 text-gray-800">Monthly Summary</h2>
-          <div className="grid grid-cols-2 gap-6 mb-6">
-            <BalanceCard
-              spending={totalExpenses}
-              budgetPlusIncome={monthlyBudget.base_budget + totalIncome}
-            />
-            <div className="bg-blue-50 p-6 rounded-lg">
-              <p className="text-gray-600 text-sm font-semibold mb-2">Total Income</p>
-              <p className="text-3xl font-bold text-blue-600">
-                {formatCurrency(totalIncome)}
-              </p>
-            </div>
+      <section className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+          <div>
+            <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Transaction History</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900">Latest activity</h2>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {categoryCards.map(({ category, total }) => (
-              <div key={category} className="bg-white border border-gray-200 p-5 rounded-xl shadow-sm">
-                <p className="text-sm text-gray-500 uppercase tracking-[0.15em] mb-2">{category}</p>
-                <p className="text-2xl font-bold text-gray-900">{formatCurrency(total)}</p>
-              </div>
-            ))}
+          <div className="flex flex-wrap gap-3">
+            <button className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400">
+              Filter
+            </button>
+            <button className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800">
+              Export
+            </button>
           </div>
-        </section>
-      )}
+        </div>
 
-      {/* Recent Transactions */}
-      <section className="p-8 bg-white">
-        <h2 className="text-2xl font-bold mb-4 text-gray-800">Recent Transactions</h2>
-        <div className="overflow-y-auto">
-          {transactions.length === 0 ? (
-            <p className="text-gray-500 text-lg">No transactions this month</p>
-          ) : (
-            <div className="space-y-3 max-h-96 overflow-y-auto">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-separate border-spacing-y-3 text-left">
+            <thead>
+              <tr className="text-sm uppercase tracking-[0.2em] text-slate-500">
+                <th className="px-4 py-3">Description</th>
+                <th className="px-4 py-3">Category</th>
+                <th className="px-4 py-3">Account</th>
+                <th className="px-4 py-3">Date</th>
+                <th className="px-4 py-3 text-right">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
               {transactions.map((transaction) => (
-                <div
-                  key={transaction.id}
-                  className="flex justify-between items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition"
-                >
-                  <div className="flex-1">
-                    <p className="font-semibold text-gray-800">{transaction.description || transaction.category}</p>
-                    <p className="text-sm text-gray-600">
-                      {formatDate(transaction.date)}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    {transaction.category === 'Income' ? (
-                      <p className="text-lg font-bold text-green-600">
-                        +{formatCurrency(transaction.amount)}
-                      </p>
-                    ) : (
-                      <p className="text-lg font-bold text-red-600">
-                        -{formatCurrency(transaction.amount)}
-                      </p>
-                    )}
-                    <p className="text-xs text-gray-500">{transaction.category}</p>
-                  </div>
-                </div>
+                <tr key={transaction.id} className="rounded-3xl bg-slate-50 shadow-sm transition hover:bg-slate-100">
+                  <td className="px-4 py-4 text-sm text-slate-800">{transaction.description || transaction.category}</td>
+                  <td className="px-4 py-4 text-sm text-slate-500 uppercase">{transaction.category}</td>
+                  <td className="px-4 py-4 text-sm text-slate-500">{accountNameById[transaction.account_id] || 'Unknown'}</td>
+                  <td className="px-4 py-4 text-sm text-slate-500">{formatDate(transaction.date)}</td>
+                  <td className={`px-4 py-4 text-right text-sm font-semibold ${transaction.category === 'Income' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {transaction.category === 'Income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                  </td>
+                </tr>
               ))}
-            </div>
-          )}
+            </tbody>
+          </table>
         </div>
       </section>
 
