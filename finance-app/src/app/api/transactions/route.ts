@@ -11,7 +11,7 @@ type TransactionBody = {
   account_id: string
 }
 
-//Gets all transactions from this month
+//Gets all transactions from this month or for a specific account
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
@@ -19,39 +19,48 @@ export async function GET(req: NextRequest) {
     const monthParam = searchParams.get("month")
     const yearParam = searchParams.get("year")
     const category = searchParams.get("category")
+    const account = searchParams.get("account")
 
-    if (!monthParam || !yearParam) {
-      return NextResponse.json(
-        { error: "Month and year are required" },
-        { status: 400 }
-      )
+    let query = `SELECT * FROM "transactions"`
+    const values: any[] = []
+    const conditions: string[] = []
+
+    if (account) {
+      conditions.push(`account_id = $${values.length + 1}`)
+      values.push(account)
+    } else {
+      if (!monthParam || !yearParam) {
+        return NextResponse.json(
+          { error: "Month and year are required if no account specified" },
+          { status: 400 }
+        )
+      }
+
+      const month = Number(monthParam)
+      const year = Number(yearParam)
+
+      if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
+        return NextResponse.json(
+          { error: "Invalid month or year" },
+          { status: 400 }
+        )
+      }
+
+      // Use date range instead of EXTRACT (index friendly)
+      const startDate = new Date(year, month - 1, 1)
+      const endDate = new Date(year, month, 1)
+
+      conditions.push(`date >= $${values.length + 1} AND date < $${values.length + 2}`)
+      values.push(startDate, endDate)
     }
-
-    const month = Number(monthParam)
-    const year = Number(yearParam)
-
-    if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
-      return NextResponse.json(
-        { error: "Invalid month or year" },
-        { status: 400 }
-      )
-    }
-
-    // Use date range instead of EXTRACT (index friendly)
-    const startDate = new Date(year, month - 1, 1)
-    const endDate = new Date(year, month, 1)
-
-    let query = `
-      SELECT *
-      FROM "transactions"
-      WHERE date >= $1 AND date < $2
-    `
-
-    const values: any[] = [startDate, endDate]
 
     if (category) {
-      query += ` AND category = $3`
+      conditions.push(`category = $${values.length + 1}`)
       values.push(category)
+    }
+
+    if (conditions.length > 0) {
+      query += ` WHERE ` + conditions.join(' AND ')
     }
 
     const result = await pool.query(query, values)

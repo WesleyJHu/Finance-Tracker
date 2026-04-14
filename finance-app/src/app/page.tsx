@@ -2,6 +2,8 @@
 
 import React, { useEffect, useState } from 'react';
 import Card from '../components/AccountCard';
+import CreateAccountModal from '../components/CreateAccountModal';
+import BalanceCard from '../components/BalanceCard';
 
 interface Account {
   id: string;
@@ -34,6 +36,7 @@ export default function Dashboard() {
   const [monthlyBudget, setMonthlyBudget] = useState<MonthlyBudget | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -130,7 +133,16 @@ export default function Dashboard() {
     <main className="min-h-screen bg-gray-50">
       {/* Cards and Accounts Section */}
       <section className="bg-white border-b-2 border-gray-200 p-8">
-        <h2 className="text-4xl font-bold mb-6 text-gray-800">Cards and Accounts</h2>
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-4xl font-bold text-gray-800">Cards and Accounts</h2>
+          <button
+            onClick={() => setShowCreateModal(true)}
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg flex items-center gap-2"
+          >
+            <span className="text-xl">+</span>
+            Add Account
+          </button>
+        </div>
         <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-gray-400 scrollbar-track-gray-100">
           <div className="flex gap-6 pb-4 min-w-min">
             {accounts.length === 0 ? (
@@ -174,19 +186,11 @@ export default function Dashboard() {
       {monthlyBudget && (
         <section className="p-8 bg-white border-b-2 border-gray-200">
           <h2 className="text-2xl font-bold mb-4 text-gray-800">Monthly Summary</h2>
-          <div className="grid grid-cols-3 gap-6 mb-6">
-            <div className="bg-green-50 p-6 rounded-lg">
-              <p className="text-gray-600 text-sm font-semibold mb-2">Budget Remaining</p>
-              <p className="text-3xl font-bold text-green-600">
-                {formatCurrency(monthlyBudget.base_budget - totalExpenses + totalIncome)}
-              </p>
-            </div>
-            <div className="bg-orange-50 p-6 rounded-lg">
-              <p className="text-gray-600 text-sm font-semibold mb-2">Total Expenses</p>
-              <p className="text-3xl font-bold text-orange-600">
-                {formatCurrency(totalExpenses)}
-              </p>
-            </div>
+          <div className="grid grid-cols-2 gap-6 mb-6">
+            <BalanceCard
+              spending={totalExpenses}
+              budgetPlusIncome={monthlyBudget.base_budget + totalIncome}
+            />
             <div className="bg-blue-50 p-6 rounded-lg">
               <p className="text-gray-600 text-sm font-semibold mb-2">Total Income</p>
               <p className="text-3xl font-bold text-blue-600">
@@ -242,6 +246,16 @@ export default function Dashboard() {
           )}
         </div>
       </section>
+
+      {showCreateModal && (
+        <CreateAccountModal
+          onClose={() => setShowCreateModal(false)}
+          onCreate={(newAccount) => {
+            setAccounts((current) => [...current, newAccount]);
+            setShowCreateModal(false);
+          }}
+        />
+      )}
     </main>
   );
 }

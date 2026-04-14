@@ -1,6 +1,5 @@
 "use client";
 
-import type { Transaction } from "@/types/transaction";
 import type { CardProps } from "@/types/card";
 
 import React, { useState } from "react";
@@ -22,26 +21,6 @@ const Card: React.FC<CardProps> = ({
   const [accountType, setAccountType] = useState(type);
   const [isOpen, setIsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const openModal = async () => {
-    setIsOpen(true);
-    setLoading(true);
-
-    try {
-      const month = new Date().toISOString().slice(0, 7);
-      const res = await fetch(
-        `/api/transactions?account=${accountName}&month=${month}`
-      );
-      const data = await res.json();
-      setTransactions(data);
-    } catch (err) {
-      console.error("Failed to fetch transactions", err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -64,7 +43,7 @@ const Card: React.FC<CardProps> = ({
     <>
       {/* CARD */}
       <div
-        onClick={openModal}
+        onClick={() => setIsOpen(true)}
         className={`
           relative
           bg-accent
@@ -137,20 +116,9 @@ const Card: React.FC<CardProps> = ({
       {/* MODALS */}
       {isOpen && (
         <AccountModal
-          id={id}
-          name={accountName}
-          type={accountType}
-          balance={value}
-          max={limit}
-          transactions={transactions}
-          loading={loading}
+          accountId={id}
+          accountName={accountName}
           onClose={() => setIsOpen(false)}
-          onUpdate={(updated) => {
-            setAccountName(updated.name);
-            setAccountType(updated.type);
-            onUpdate?.(updated);
-          }}
-          onDelete={(deletedId) => onDelete?.(deletedId)}
         />
       )}
       {editOpen && (
