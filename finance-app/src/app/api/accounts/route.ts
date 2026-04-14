@@ -7,6 +7,7 @@ type AccountBody = {
     name: string
     type: string
     balance: number
+    max: number
 }
 
 //Gets all accounts
@@ -27,25 +28,26 @@ export async function GET() {
 export async function POST(req: NextRequest) {
     try {
         const body: AccountBody = await req.json();
-        const { name, type, balance } = body
+        const { name, type, balance, max } = body
 
-        if (!name || !type || balance === undefined) {
+        if (!name || !type || balance === undefined || max === undefined) {
             return NextResponse.json(
                 { error: "Missing required fields" },
                 { status: 400 }
             )
         }
         const parsedBalance = Number(balance)
+        const parsedMax = Number(max)
 
-        if (isNaN(parsedBalance)) {
+        if (isNaN(parsedBalance) || isNaN(parsedMax)) {
             return NextResponse.json(
-                { error: "Invalid balance" },
+                { error: "Invalid balance or max" },
                 { status: 400 }
             )
         }
         const result = await pool.query(
-            'INSERT INTO accounts (name, type, balance) VALUES ($1, $2, $3) RETURNING *',
-            [name, type, parsedBalance]
+            'INSERT INTO accounts (name, type, balance, max) VALUES ($1, $2, $3, $4) RETURNING *',
+            [name, type, parsedBalance, parsedMax]
         )
         return NextResponse.json(result.rows[0], { status: 201 })
     } catch (error: any) {
@@ -64,7 +66,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
     try {
         const body = await req.json()
-        const { id, name, type, balance } = body
+        const { id, name, type, balance, max } = body
 
         if (!id) {
             return NextResponse.json(
@@ -74,10 +76,17 @@ export async function PATCH(req: NextRequest) {
         }
 
         const parsedBalance = balance !== undefined ? Number(balance) : undefined
+        const parsedMax = max !== undefined ? Number(max) : undefined
 
         if (parsedBalance !== undefined && isNaN(parsedBalance)) {
             return NextResponse.json(
                 { error: "Invalid balance" },
+                { status: 400 }
+            )
+        }
+        if (parsedMax !== undefined && isNaN(parsedMax)) {
+            return NextResponse.json(
+                { error: "Invalid max" },
                 { status: 400 }
             )
         }
@@ -87,11 +96,12 @@ export async function PATCH(req: NextRequest) {
             UPDATE accounts
             SET name = COALESCE($1, name),
                 type = COALESCE($2, type),
-                balance = COALESCE($3, balance)
-            WHERE id = $4
+                balance = COALESCE($3, balance),
+                max = COALESCE($4, max)
+            WHERE id = $5
             RETURNING *
         `,
-            [name, type, parsedBalance, id]
+            [name, type, parsedBalance, parsedMax, id]
         )
         
         if (result.rows.length === 0) {

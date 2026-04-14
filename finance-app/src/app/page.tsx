@@ -8,7 +8,7 @@ interface Account {
   name: string;
   type: string;
   balance: number;
-  credit_limit?: number;
+  max: number;
 }
 
 interface Transaction {
@@ -90,6 +90,22 @@ export default function Dashboard() {
     });
   };
 
+  const categoryTotals = transactions.reduce<Record<string, number>>((totals, transaction) => {
+    if (transaction.category === 'Income') return totals; // Exclude income from category totals
+    const category = transaction.category || 'Uncategorized';
+    totals[category] = (totals[category] || 0) + transaction.amount;
+    return totals;
+  }, {});
+
+  const totalExpenses = transactions.filter(t => t.category !== 'Income').reduce((sum, t) => sum + t.amount, 0);
+  const totalIncome = transactions.filter(t => t.category === 'Income').reduce((sum, t) => sum + t.amount, 0);
+
+  const fixedCategories = ['grocery', 'food', 'technology', 'transportation', 'entertainment', 'bills', 'misc'];
+  const categoryCards = fixedCategories.map(category => ({
+    category,
+    total: categoryTotals[category] || 0
+  }));
+
   if (loading) {
     return (
       <main className="min-h-screen bg-gray-50 p-8">
@@ -121,11 +137,31 @@ export default function Dashboard() {
               <p className="text-gray-500 text-lg">No accounts found. Add one to get started!</p>
             ) : (
               accounts.map((account) => (
-                <div key={account.id} className="flex-shrink-0">
+                <div key={account.id} className="shrink-0">
                   <Card
+                    id={account.id}
                     name={account.name}
-                    limit={account.credit_limit || 10000}
+                    type={account.type}
+                    limit={account.max || 6500}
                     value={Math.abs(account.balance)}
+                    onUpdate={(updated) =>
+                      setAccounts((current) =>
+                        current.map((item) =>
+                          item.id === updated.id
+                            ? {
+                                ...item,
+                                name: updated.name,
+                                type: updated.type,
+                                balance: updated.balance ?? item.balance,
+                                max: updated.max ?? item.max,
+                              }
+                            : item
+                        )
+                      )
+                    }
+                    onDelete={(deletedId) =>
+                      setAccounts((current) => current.filter((item) => item.id !== deletedId))
+                    }
                   />
                 </div>
               ))
@@ -138,25 +174,33 @@ export default function Dashboard() {
       {monthlyBudget && (
         <section className="p-8 bg-white border-b-2 border-gray-200">
           <h2 className="text-2xl font-bold mb-4 text-gray-800">Monthly Summary</h2>
-          <div className="grid grid-cols-3 gap-6">
-            <div className="bg-blue-50 p-6 rounded-lg">
-              <p className="text-gray-600 text-sm font-semibold mb-2">Budget</p>
-              <p className="text-3xl font-bold text-blue-600">
-                {formatCurrency(monthlyBudget.base_budget)}
+          <div className="grid grid-cols-3 gap-6 mb-6">
+            <div className="bg-green-50 p-6 rounded-lg">
+              <p className="text-gray-600 text-sm font-semibold mb-2">Budget Remaining</p>
+              <p className="text-3xl font-bold text-green-600">
+                {formatCurrency(monthlyBudget.base_budget - totalExpenses + totalIncome)}
               </p>
             </div>
             <div className="bg-orange-50 p-6 rounded-lg">
-              <p className="text-gray-600 text-sm font-semibold mb-2">Spent</p>
+              <p className="text-gray-600 text-sm font-semibold mb-2">Total Expenses</p>
               <p className="text-3xl font-bold text-orange-600">
-                {formatCurrency(monthlyBudget.spent || 0)}
+                {formatCurrency(totalExpenses)}
               </p>
             </div>
-            <div className="bg-green-50 p-6 rounded-lg">
-              <p className="text-gray-600 text-sm font-semibold mb-2">Remaining</p>
-              <p className="text-3xl font-bold text-green-600">
-                {formatCurrency(Math.max(0, monthlyBudget.base_budget - (monthlyBudget.spent || 0)))}
+            <div className="bg-blue-50 p-6 rounded-lg">
+              <p className="text-gray-600 text-sm font-semibold mb-2">Total Income</p>
+              <p className="text-3xl font-bold text-blue-600">
+                {formatCurrency(totalIncome)}
               </p>
             </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {categoryCards.map(({ category, total }) => (
+              <div key={category} className="bg-white border border-gray-200 p-5 rounded-xl shadow-sm">
+                <p className="text-sm text-gray-500 uppercase tracking-[0.15em] mb-2">{category}</p>
+                <p className="text-2xl font-bold text-gray-900">{formatCurrency(total)}</p>
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -169,7 +213,7 @@ export default function Dashboard() {
             <p className="text-gray-500 text-lg">No transactions this month</p>
           ) : (
             <div className="space-y-3 max-h-96 overflow-y-auto">
-              {transactions.slice(0, 20).map((transaction) => (
+              {transactions.map((transaction) => (
                 <div
                   key={transaction.id}
                   className="flex justify-between items-center p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition"
@@ -181,9 +225,15 @@ export default function Dashboard() {
                     </p>
                   </div>
                   <div className="text-right">
-                    <p className="text-lg font-bold text-red-600">
-                      -{formatCurrency(transaction.amount)}
-                    </p>
+                    {transaction.category === 'Income' ? (
+                      <p className="text-lg font-bold text-green-600">
+                        +{formatCurrency(transaction.amount)}
+                      </p>
+                    ) : (
+                      <p className="text-lg font-bold text-red-600">
+                        -{formatCurrency(transaction.amount)}
+                      </p>
+                    )}
                     <p className="text-xs text-gray-500">{transaction.category}</p>
                   </div>
                 </div>

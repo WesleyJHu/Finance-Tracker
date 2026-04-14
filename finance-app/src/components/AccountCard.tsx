@@ -5,15 +5,23 @@ import type { CardProps } from "@/types/card";
 
 import React, { useState } from "react";
 import AccountModal from "./AccountModal";
+import EditAccountModal from "./EditAccountModal";
 
 const Card: React.FC<CardProps> = ({
+  id,
   name,
+  type,
   limit,
   value,
   size = 150,
   strokeWidth = 20,
+  onUpdate,
+  onDelete,
 }) => {
+  const [accountName, setAccountName] = useState(name);
+  const [accountType, setAccountType] = useState(type);
   const [isOpen, setIsOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -24,7 +32,7 @@ const Card: React.FC<CardProps> = ({
     try {
       const month = new Date().toISOString().slice(0, 7);
       const res = await fetch(
-        `/api/transactions?account=${name}&month=${month}`
+        `/api/transactions?account=${accountName}&month=${month}`
       );
       const data = await res.json();
       setTransactions(data);
@@ -40,6 +48,12 @@ const Card: React.FC<CardProps> = ({
   const progress = Math.min(Math.max(value / limit, 0), 1);
   const offset = circumference * (1 - progress);
 
+  const handleAccountUpdate = (updated: { id: string; name: string; type: string; balance?: number; max?: number }) => {
+    setAccountName(updated.name);
+    setAccountType(updated.type);
+    onUpdate?.(updated);
+  };
+
   const formatCurrency = (num: number) =>
     new Intl.NumberFormat("en-US", {
       style: "currency",
@@ -52,6 +66,7 @@ const Card: React.FC<CardProps> = ({
       <div
         onClick={openModal}
         className={`
+          relative
           bg-accent
           rounded-lg
           border-4
@@ -65,9 +80,20 @@ const Card: React.FC<CardProps> = ({
           }
         `}
       >
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setEditOpen(true);
+          }}
+          className="absolute right-3 top-3 z-10 rounded-md bg-white px-3 py-1 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-100"
+        >
+          Edit
+        </button>
+
         {/* Title */}
         <div className="text-center font-bold text-4xl border-b-4 border-black p-2">
-          {name}
+          {accountName}
         </div>
 
         {/* Donut + numbers */}
@@ -104,18 +130,39 @@ const Card: React.FC<CardProps> = ({
         </div>
 
         <div className="text-center text-md text-gray-500">
-          {formatCurrency(limit - value)} remaining
+          {accountType} • {formatCurrency(limit - value)} remaining
         </div>
       </div>
 
-      {/* MODAL */}
+      {/* MODALS */}
       {isOpen && (
         <AccountModal
-          name={name}
-          value={formatCurrency(value)}
+          id={id}
+          name={accountName}
+          type={accountType}
+          balance={value}
+          max={limit}
           transactions={transactions}
           loading={loading}
           onClose={() => setIsOpen(false)}
+          onUpdate={(updated) => {
+            setAccountName(updated.name);
+            setAccountType(updated.type);
+            onUpdate?.(updated);
+          }}
+          onDelete={(deletedId) => onDelete?.(deletedId)}
+        />
+      )}
+      {editOpen && (
+        <EditAccountModal
+          id={id}
+          name={accountName}
+          type={accountType}
+          balance={value}
+          max={limit}
+          onClose={() => setEditOpen(false)}
+          onUpdate={handleAccountUpdate}
+          onDelete={(deletedId) => onDelete?.(deletedId)}
         />
       )}
     </>
