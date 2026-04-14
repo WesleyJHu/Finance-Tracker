@@ -14,7 +14,12 @@ type AccountBody = {
 export async function GET() {
     try {
         const result = await pool.query('SELECT * FROM accounts');
-        return NextResponse.json(result.rows);
+        const accounts = result.rows.map((row) => ({
+            ...row,
+            balance: Number(row.balance),
+            max: Number(row.max),
+        }))
+        return NextResponse.json(accounts);
     } catch (error) {
         console.error("GET /accounts error:", error);
         return NextResponse.json(
@@ -49,7 +54,12 @@ export async function POST(req: NextRequest) {
             'INSERT INTO accounts (name, type, balance, max) VALUES ($1, $2, $3, $4) RETURNING *',
             [name, type, parsedBalance, parsedMax]
         )
-        return NextResponse.json(result.rows[0], { status: 201 })
+        const newAccount = {
+            ...result.rows[0],
+            balance: Number(result.rows[0].balance),
+            max: Number(result.rows[0].max),
+        }
+        return NextResponse.json(newAccount, { status: 201 })
     } catch (error: any) {
         console.error("POST /accounts error:", error)
         console.error(error)
@@ -110,7 +120,12 @@ export async function PATCH(req: NextRequest) {
                 { status: 404 }
             )
         }
-        return NextResponse.json(result.rows[0])
+        const updatedAccount = {
+            ...result.rows[0],
+            balance: Number(result.rows[0].balance),
+            max: Number(result.rows[0].max),
+        }
+        return NextResponse.json(updatedAccount)
     } catch (error: any) {
         console.error("PATCH /accounts error:", error)
         console.error(error)

@@ -64,8 +64,12 @@ export async function GET(req: NextRequest) {
     }
 
     const result = await pool.query(query, values)
+    const transactions = result.rows.map((row) => ({
+      ...row,
+      amount: Number(row.amount),
+    }))
 
-    return NextResponse.json(result.rows)
+    return NextResponse.json(transactions)
 
   } catch (error: any) {
     console.error("GET /transactions error:", error)
@@ -108,6 +112,10 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const delta = category.toLowerCase() === 'income' ? parsedAmount : -parsedAmount
+
+    await pool.query('BEGIN')
+
     const result = await pool.query(
       `
       INSERT INTO "transactions"
@@ -118,9 +126,28 @@ export async function POST(req: NextRequest) {
       [date, parsedAmount, description ?? null, category, account_id]
     )
 
-    return NextResponse.json(result.rows[0], { status: 201 })
+    const accountUpdate = await pool.query(
+      `UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING *`,
+      [delta, account_id]
+    )
+
+    if (accountUpdate.rowCount === 0) {
+      await pool.query('ROLLBACK')
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+    }
+
+    await pool.query('COMMIT')
+
+    const newTransaction = {
+      ...result.rows[0],
+      amount: Number(result.rows[0].amount),
+    }
+    console.log("POST /transactions created:", newTransaction, "accountUpdated:", accountUpdate.rows[0])
+
+    return NextResponse.json(newTransaction, { status: 201 })
 
   } catch (error: any) {
+    await pool.query('ROLLBACK')
     console.error("POST /transactions error:")
     console.error(error)
     console.error(error.message)
@@ -137,19 +164,40 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
     try {
         const body = await req.json()
-        const { id, date, amount, description, category } = body
+        const { id, date, amount, description, category, account_id } = body
 
         if (!id) {
             return NextResponse.json({ error: "Transaction ID is required" }, { status: 400 })
         }
 
-        const parsedAmount = amount !== undefined ? Number(amount) : undefined
+        const existingResult = await pool.query(
+            `SELECT * FROM "transactions" WHERE id = $1`,
+            [id]
+        )
 
-        if (amount !== undefined && isNaN(parsedAmount!)) {
+        if (existingResult.rowCount === 0) {
+            return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+        }
+
+        const existingTransaction = existingResult.rows[0]
+        const existingAmount = Number(existingTransaction.amount)
+        const existingCategory = existingTransaction.category
+        const existingAccountId = existingTransaction.account_id
+
+        const newAmount = amount !== undefined ? Number(amount) : existingAmount
+        if (amount !== undefined && isNaN(newAmount)) {
             return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
         }
 
-        const result = await pool.query(
+        const newCategory = category ?? existingCategory
+        const newAccountId = account_id ?? existingAccountId
+
+        const oldDelta = existingCategory.toLowerCase() === 'income' ? existingAmount : -existingAmount
+        const newDelta = newCategory.toLowerCase() === 'income' ? newAmount : -newAmount
+
+        await pool.query('BEGIN')
+
+        const updateResult = await pool.query(
             `
             UPDATE "transactions"
             SET
@@ -163,20 +211,48 @@ export async function PATCH(req: NextRequest) {
             `,
             [
                 date ?? null,
-                parsedAmount ?? null,
+                amount !== undefined ? newAmount : null,
                 description ?? null,
                 category ?? null,
-                body.account_id ?? null,
+                account_id ?? null,
                 id
             ]
         )
 
-        if (result.rowCount === 0) {
+        if (updateResult.rowCount === 0) {
+            await pool.query('ROLLBACK')
             return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
         }
 
-        return NextResponse.json(result.rows[0])
+        if (existingAccountId === newAccountId) {
+            const balanceDelta = newDelta - oldDelta
+            await pool.query(
+                `UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING *`,
+                [balanceDelta, newAccountId]
+            )
+        } else {
+            await pool.query(
+                `UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING *`,
+                [oldDelta, existingAccountId]
+            )
+            await pool.query(
+                `UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING *`,
+                [newDelta, newAccountId]
+            )
+        }
+
+        await pool.query('COMMIT')
+
+        const updatedTransaction = {
+            ...updateResult.rows[0],
+            amount: Number(updateResult.rows[0].amount),
+        }
+
+        console.log("PATCH /transactions updated:", updatedTransaction)
+
+        return NextResponse.json(updatedTransaction)
     } catch (error: any) {
+        await pool.query('ROLLBACK')
         console.error("PATCH /transactions error:", error)
         console.error(error)
         console.error(error.message)
@@ -194,7 +270,23 @@ export async function DELETE(req: NextRequest) {
         if (!id) {
             return NextResponse.json({ error: "Transaction ID is required" }, { status: 400 })
         }
-        const result = await pool.query(
+
+        const existingResult = await pool.query(
+            `SELECT * FROM "transactions" WHERE id = $1`,
+            [id]
+        )
+
+        if (existingResult.rowCount === 0) {
+            return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
+        }
+
+        const transaction = existingResult.rows[0]
+        const transactionAmount = Number(transaction.amount)
+        const transactionDelta = transaction.category.toLowerCase() === 'income' ? transactionAmount : -transactionAmount
+
+        await pool.query('BEGIN')
+
+        const deleteResult = await pool.query(
             `
             DELETE FROM "transactions"
             WHERE id = $1
@@ -203,12 +295,23 @@ export async function DELETE(req: NextRequest) {
             [id]
         )
 
-        if (result.rowCount === 0) {
+        if (deleteResult.rowCount === 0) {
+            await pool.query('ROLLBACK')
             return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
         }
 
+        await pool.query(
+            `UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING *`,
+            [transactionDelta, transaction.account_id]
+        )
+
+        await pool.query('COMMIT')
+
+        console.log("DELETE /transactions removed:", transaction)
+
         return NextResponse.json({ message: "Transaction deleted successfully" })
     } catch (error: any) {
+        await pool.query('ROLLBACK')
         console.error("DELETE /transactions error:", error)
         console.error(error)
         console.error(error.message)

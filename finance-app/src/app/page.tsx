@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from 'react';
 import Card from '../components/AccountCard';
 import CreateAccountModal from '../components/CreateAccountModal';
+import AddTransactionModal from '../components/AddTransactionModal';
+import EditTransactionModal from '../components/EditTransactionModal';
 
 interface Account {
   id: string;
@@ -35,7 +37,8 @@ export default function Dashboard() {
   const [monthlyBudget, setMonthlyBudget] = useState<MonthlyBudget | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showTransactionModal, setShowTransactionModal] = useState(false);
 
   const handleAccountUpdate = (updatedAccount: { id: string; name: string; type: string; balance: number; max?: number }) => {
     setAccounts(prev => prev.map(acc => acc.id === updatedAccount.id ? { ...acc, ...updatedAccount } : acc));
@@ -43,6 +46,71 @@ export default function Dashboard() {
 
   const handleAccountDelete = (id: string) => {
     setAccounts(prev => prev.filter(acc => acc.id !== id));
+  };
+
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+
+  const getTransactionDelta = (transaction: Transaction) =>
+    transaction.category.toLowerCase() === 'income' ? transaction.amount : -transaction.amount;
+
+  const adjustAccountBalances = (oldTransaction: Transaction, newTransaction: Transaction | null) => {
+    const oldDelta = getTransactionDelta(oldTransaction);
+    const newDelta = newTransaction ? getTransactionDelta(newTransaction) : 0;
+
+    setAccounts((current) =>
+      current.map((account) => {
+        let updatedBalance = account.balance;
+
+        if (account.id === oldTransaction.account_id) {
+          updatedBalance -= oldDelta;
+        }
+
+        if (newTransaction && account.id === newTransaction.account_id) {
+          updatedBalance += newDelta;
+        }
+
+        return {
+          ...account,
+          balance: updatedBalance,
+        };
+      })
+    );
+  };
+
+  const handleDeleteTransaction = async (transaction: Transaction) => {
+    try {
+      const res = await fetch('/api/transactions', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: transaction.id }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data?.error || 'Failed to delete transaction');
+      }
+
+      setTransactions((current) => current.filter((t) => t.id !== transaction.id));
+      adjustAccountBalances(transaction, null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete transaction');
+      console.error('Delete transaction failed:', err);
+    }
+  };
+
+  const handleSaveTransaction = (updatedTransaction: Transaction) => {
+    if (!editingTransaction) return;
+
+    setTransactions((current) =>
+      current.map((transaction) =>
+        transaction.id === updatedTransaction.id ? updatedTransaction : transaction
+      )
+    );
+
+    adjustAccountBalances(editingTransaction, updatedTransaction);
+    setEditingTransaction(null);
   };
 
   useEffect(() => {
@@ -58,12 +126,16 @@ export default function Dashboard() {
         const accountsRes = await fetch('/api/accounts');
         if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
         const accountsData = await accountsRes.json();
-        setAccounts(accountsData);
+        setAccounts(accountsData.map((account: Account) => ({
+          ...account,
+          balance: Number(account.balance),
+          max: Number(account.max),
+        })));
 
         const transRes = await fetch(`/api/transactions?month=${month}&year=${year}`);
         if (!transRes.ok) throw new Error('Failed to fetch transactions');
         const transData = await transRes.json();
-        setTransactions(transData);
+        setTransactions(transData.map(normalizeTransaction));
 
         const budgetRes = await fetch(`/api/monthly_budgets?month=${month}`);
         if (!budgetRes.ok) throw new Error('Failed to fetch budget');
@@ -95,15 +167,20 @@ export default function Dashboard() {
       year: 'numeric',
     });
 
+  const normalizeTransaction = (transaction: any): Transaction => ({
+    ...transaction,
+    amount: Number(transaction.amount),
+  });
+
   const totalExpenses = transactions
-    .filter((t) => t.category !== 'Income')
+    .filter((t) => t.category !== 'income')
     .reduce((sum, t) => sum + t.amount, 0);
   const totalIncome = transactions
-    .filter((t) => t.category === 'Income')
+    .filter((t) => t.category === 'income')
     .reduce((sum, t) => sum + t.amount, 0);
 
   const categoryTotals = transactions.reduce<Record<string, number>>((totals, transaction) => {
-    if (transaction.category === 'Income') return totals;
+    if (transaction.category === 'income') return totals;
     const category = transaction.category || 'Uncategorized';
     totals[category] = (totals[category] || 0) + transaction.amount;
     return totals;
@@ -148,7 +225,7 @@ export default function Dashboard() {
 
         <button
           type="button"
-          onClick={() => setShowCreateModal(true)}
+          onClick={() => setShowTransactionModal(true)}
           className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800"
         >
           Add Transaction
@@ -164,7 +241,7 @@ export default function Dashboard() {
           <div className="flex flex-wrap gap-3">
             <button
               type="button"
-              onClick={() => setShowCreateModal(true)}
+              onClick={() => setShowAccountModal(true)}
               className="rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
             >
               Link New Account
@@ -194,7 +271,7 @@ export default function Dashboard() {
 
           <button
             type="button"
-            onClick={() => setShowCreateModal(true)}
+            onClick={() => setShowAccountModal(true)}
             className="flex min-h-[176px] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-slate-400 hover:text-slate-800"
           >
             <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-2xl">+</span>
@@ -290,6 +367,7 @@ export default function Dashboard() {
                 <th className="px-4 py-3">Account</th>
                 <th className="px-4 py-3">Date</th>
                 <th className="px-4 py-3 text-right">Amount</th>
+                <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -299,8 +377,26 @@ export default function Dashboard() {
                   <td className="px-4 py-4 text-sm text-slate-500 uppercase">{transaction.category}</td>
                   <td className="px-4 py-4 text-sm text-slate-500">{accountNameById[transaction.account_id] || 'Unknown'}</td>
                   <td className="px-4 py-4 text-sm text-slate-500">{formatDate(transaction.date)}</td>
-                  <td className={`px-4 py-4 text-right text-sm font-semibold ${transaction.category === 'Income' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {transaction.category === 'Income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                  <td className={`px-4 py-4 text-right text-sm font-semibold ${transaction.category.toLowerCase() === 'income' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {transaction.category.toLowerCase() === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                  </td>
+                  <td className="px-4 py-4 text-right">
+                    <div className="inline-flex items-center gap-2">
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
+                        onClick={() => setEditingTransaction(transaction)}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        type="button"
+                        className="rounded-full border border-rose-300 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                        onClick={() => handleDeleteTransaction(transaction)}
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -309,12 +405,54 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {showCreateModal && (
+      {showTransactionModal && (
+        <AddTransactionModal
+          accounts={accounts}
+          onClose={() => setShowTransactionModal(false)}
+          onCreate={(newTransaction) => {
+            const normalizedTransaction = normalizeTransaction(newTransaction);
+            console.debug('New transaction added:', normalizedTransaction);
+
+            setTransactions((current) => [...current, normalizedTransaction]);
+            setAccounts((current) =>
+              current.map((account) => {
+                if (account.id !== normalizedTransaction.account_id) {
+                  return account;
+                }
+
+                const delta = normalizedTransaction.category.toLowerCase() === 'income'
+                  ? normalizedTransaction.amount
+                  : -normalizedTransaction.amount;
+
+                const updatedBalance = Number(account.balance) + delta;
+                console.debug(
+                  `Updating account ${account.id} balance from ${account.balance} to ${updatedBalance}`
+                );
+
+                return {
+                  ...account,
+                  balance: updatedBalance,
+                };
+              })
+            );
+            setShowTransactionModal(false);
+          }}
+        />
+      )}
+      {editingTransaction && (
+        <EditTransactionModal
+          transaction={editingTransaction}
+          accounts={accounts}
+          onClose={() => setEditingTransaction(null)}
+          onUpdate={handleSaveTransaction}
+        />
+      )}
+      {showAccountModal && (
         <CreateAccountModal
-          onClose={() => setShowCreateModal(false)}
+          onClose={() => setShowAccountModal(false)}
           onCreate={(newAccount) => {
             setAccounts((current) => [...current, newAccount]);
-            setShowCreateModal(false);
+            setShowAccountModal(false);
           }}
         />
       )}
