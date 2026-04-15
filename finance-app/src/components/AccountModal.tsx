@@ -63,6 +63,14 @@ const AccountModal: React.FC<AccountModalProps> = ({
     });
   };
 
+  const isIncomeTransaction = (transaction: Transaction) =>
+    transaction.category.toLowerCase() === "income";
+
+  const displayAmount = (transaction: Transaction) => {
+    const value = formatCurrency(Math.abs(transaction.amount));
+    return isIncomeTransaction(transaction) ? `+${value}` : `-${value}`;
+  };
+
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
@@ -121,9 +129,9 @@ const AccountModal: React.FC<AccountModalProps> = ({
                     </div>
                     <div className="text-right">
                       <p className={`text-lg font-bold ${
-                        tx.amount >= 0 ? 'text-green-600' : 'text-red-600'
+                        isIncomeTransaction(tx) ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {tx.amount >= 0 ? '+' : ''}{formatCurrency(tx.amount)}
+                        {displayAmount(tx)}
                       </p>
                     </div>
                   </div>

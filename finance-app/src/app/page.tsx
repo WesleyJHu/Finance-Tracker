@@ -51,27 +51,46 @@ export default function Dashboard() {
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
   const getTransactionDelta = (transaction: Transaction) =>
-    transaction.category.toLowerCase() === 'income' ? transaction.amount : -transaction.amount;
+    transaction.category.toLowerCase() === 'income' ? 0 : -transaction.amount;
 
-  const adjustAccountBalances = (oldTransaction: Transaction, newTransaction: Transaction | null) => {
-    const oldDelta = getTransactionDelta(oldTransaction);
+  const isCreditAccountType = (type?: string) =>
+    type?.toLowerCase().includes('credit');
+
+  const getTransactionMaxDelta = (transaction: Transaction) =>
+    transaction.category.toLowerCase() === 'income' ? transaction.amount : 0;
+
+  const applyTransactionAccountChanges = (
+    oldTransaction: Transaction | null,
+    newTransaction: Transaction | null
+  ) => {
+    const oldDelta = oldTransaction ? getTransactionDelta(oldTransaction) : 0;
+    const oldMaxDelta = oldTransaction ? getTransactionMaxDelta(oldTransaction) : 0;
     const newDelta = newTransaction ? getTransactionDelta(newTransaction) : 0;
+    const newMaxDelta = newTransaction ? getTransactionMaxDelta(newTransaction) : 0;
 
     setAccounts((current) =>
       current.map((account) => {
         let updatedBalance = account.balance;
+        let updatedMax = account.max;
 
-        if (account.id === oldTransaction.account_id) {
+        if (oldTransaction && account.id === oldTransaction.account_id) {
           updatedBalance -= oldDelta;
+          if (!isCreditAccountType(account.type)) {
+            updatedMax -= oldMaxDelta;
+          }
         }
 
         if (newTransaction && account.id === newTransaction.account_id) {
           updatedBalance += newDelta;
+          if (!isCreditAccountType(account.type)) {
+            updatedMax += newMaxDelta;
+          }
         }
 
         return {
           ...account,
           balance: updatedBalance,
+          max: updatedMax,
         };
       })
     );
@@ -93,7 +112,7 @@ export default function Dashboard() {
       }
 
       setTransactions((current) => current.filter((t) => t.id !== transaction.id));
-      adjustAccountBalances(transaction, null);
+      applyTransactionAccountChanges(transaction, null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete transaction');
       console.error('Delete transaction failed:', err);
@@ -109,7 +128,7 @@ export default function Dashboard() {
       )
     );
 
-    adjustAccountBalances(editingTransaction, updatedTransaction);
+    applyTransactionAccountChanges(editingTransaction, updatedTransaction);
     setEditingTransaction(null);
   };
 
@@ -418,27 +437,7 @@ export default function Dashboard() {
             console.debug('New transaction added:', normalizedTransaction);
 
             setTransactions((current) => [...current, normalizedTransaction]);
-            setAccounts((current) =>
-              current.map((account) => {
-                if (account.id !== normalizedTransaction.account_id) {
-                  return account;
-                }
-
-                const delta = normalizedTransaction.category.toLowerCase() === 'income'
-                  ? normalizedTransaction.amount
-                  : -normalizedTransaction.amount;
-
-                const updatedBalance = Number(account.balance) + delta;
-                console.debug(
-                  `Updating account ${account.id} balance from ${account.balance} to ${updatedBalance}`
-                );
-
-                return {
-                  ...account,
-                  balance: updatedBalance,
-                };
-              })
-            );
+            applyTransactionAccountChanges(null, normalizedTransaction);
             setShowTransactionModal(false);
           }}
         />

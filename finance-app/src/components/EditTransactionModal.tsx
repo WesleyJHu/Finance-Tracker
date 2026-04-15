@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 interface AccountOption {
   id: string;
   name: string;
+  type?: string;
 }
 
 interface TransactionData {
@@ -69,12 +70,20 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     }
   }, [accounts, accountId]);
 
+  const selectedAccount = accounts.find((account) => account.id === accountId);
+  const isCreditAccount = selectedAccount?.type?.toLowerCase().includes("credit");
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
 
     if (!transactionDate || !category || !accountId) {
       setError("Date, category, and account are required.");
+      return;
+    }
+
+    if (isCreditAccount && category.toLowerCase() === "income") {
+      setError("Credit accounts cannot receive Income transactions.");
       return;
     }
 
@@ -201,11 +210,16 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               required
             >
               {categories.map((option) => (
-                <option key={option} value={option}>
+                <option key={option} value={option} disabled={isCreditAccount && option === "Income"}>
                   {option}
                 </option>
               ))}
             </select>
+            {isCreditAccount && (
+              <p className="mt-2 text-xs text-gray-500">
+                Income is not allowed for credit accounts.
+              </p>
+            )}
           </div>
 
           <div>

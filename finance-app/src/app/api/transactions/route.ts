@@ -112,7 +112,25 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    const delta = category.toLowerCase() === 'income' ? parsedAmount : -parsedAmount
+    const accountResult = await pool.query(
+      `SELECT type FROM accounts WHERE id = $1`,
+      [account_id]
+    )
+
+    if (accountResult.rowCount === 0) {
+      return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+    }
+
+    const accountType = accountResult.rows[0].type?.toLowerCase()
+    if (accountType?.includes('credit') && category.toLowerCase() === 'income') {
+      return NextResponse.json(
+        { error: 'Credit accounts cannot receive Income transactions' },
+        { status: 400 }
+      )
+    }
+
+    const maxDelta = !accountType?.includes('credit') && category.toLowerCase() === 'income' ? parsedAmount : 0
+    const delta = category.toLowerCase() === 'income' ? 0 : -parsedAmount
 
     await pool.query('BEGIN')
 
@@ -127,8 +145,8 @@ export async function POST(req: NextRequest) {
     )
 
     const accountUpdate = await pool.query(
-      `UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING *`,
-      [delta, account_id]
+      `UPDATE accounts SET balance = balance + $1, max = max + $2 WHERE id = $3 RETURNING *`,
+      [delta, maxDelta, account_id]
     )
 
     if (accountUpdate.rowCount === 0) {
@@ -192,8 +210,41 @@ export async function PATCH(req: NextRequest) {
         const newCategory = category ?? existingCategory
         const newAccountId = account_id ?? existingAccountId
 
-        const oldDelta = existingCategory.toLowerCase() === 'income' ? existingAmount : -existingAmount
-        const newDelta = newCategory.toLowerCase() === 'income' ? newAmount : -newAmount
+        const existingAccountTypeResult = await pool.query(
+          `SELECT type FROM accounts WHERE id = $1`,
+          [existingAccountId]
+        )
+
+        if (existingAccountTypeResult.rowCount === 0) {
+          await pool.query('ROLLBACK')
+          return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+        }
+
+        const existingAccountType = existingAccountTypeResult.rows[0].type?.toLowerCase()
+
+        const accountResult = await pool.query(
+          `SELECT type FROM accounts WHERE id = $1`,
+          [newAccountId]
+        )
+
+        if (accountResult.rowCount === 0) {
+          await pool.query('ROLLBACK')
+          return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+        }
+
+        const accountType = accountResult.rows[0].type?.toLowerCase()
+        if (accountType?.includes('credit') && newCategory.toLowerCase() === 'income') {
+          await pool.query('ROLLBACK')
+          return NextResponse.json(
+            { error: 'Credit accounts cannot receive Income transactions' },
+            { status: 400 }
+          )
+        }
+
+        const oldDelta = existingCategory.toLowerCase() === 'income' ? 0 : -existingAmount
+        const newDelta = newCategory.toLowerCase() === 'income' ? 0 : -newAmount
+        const oldMaxDelta = existingCategory.toLowerCase() === 'income' && !existingAccountType?.includes('credit') ? existingAmount : 0
+        const newMaxDelta = newCategory.toLowerCase() === 'income' && !accountType?.includes('credit') ? newAmount : 0
 
         await pool.query('BEGIN')
 
@@ -226,18 +277,19 @@ export async function PATCH(req: NextRequest) {
 
         if (existingAccountId === newAccountId) {
             const balanceDelta = newDelta - oldDelta
+            const maxDelta = newMaxDelta - oldMaxDelta
             await pool.query(
-                `UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING *`,
-                [balanceDelta, newAccountId]
+                `UPDATE accounts SET balance = balance + $1, max = max + $2 WHERE id = $3 RETURNING *`,
+                [balanceDelta, maxDelta, newAccountId]
             )
         } else {
             await pool.query(
-                `UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING *`,
-                [oldDelta, existingAccountId]
+                `UPDATE accounts SET balance = balance - $1, max = max - $2 WHERE id = $3 RETURNING *`,
+                [oldDelta, oldMaxDelta, existingAccountId]
             )
             await pool.query(
-                `UPDATE accounts SET balance = balance + $1 WHERE id = $2 RETURNING *`,
-                [newDelta, newAccountId]
+                `UPDATE accounts SET balance = balance + $1, max = max + $2 WHERE id = $3 RETURNING *`,
+                [newDelta, newMaxDelta, newAccountId]
             )
         }
 
@@ -282,7 +334,21 @@ export async function DELETE(req: NextRequest) {
 
         const transaction = existingResult.rows[0]
         const transactionAmount = Number(transaction.amount)
-        const transactionDelta = transaction.category.toLowerCase() === 'income' ? transactionAmount : -transactionAmount
+        const transactionDelta = transaction.category.toLowerCase() === 'income' ? 0 : -transactionAmount
+
+        const accountResult = await pool.query(
+          `SELECT type FROM accounts WHERE id = $1`,
+          [transaction.account_id]
+        )
+
+        if (accountResult.rowCount === 0) {
+          return NextResponse.json({ error: 'Account not found' }, { status: 404 })
+        }
+
+        const accountType = accountResult.rows[0].type?.toLowerCase()
+        const maxDelta = transaction.category.toLowerCase() === 'income' && !accountType?.includes('credit')
+          ? transactionAmount
+          : 0
 
         await pool.query('BEGIN')
 
@@ -301,8 +367,8 @@ export async function DELETE(req: NextRequest) {
         }
 
         await pool.query(
-            `UPDATE accounts SET balance = balance - $1 WHERE id = $2 RETURNING *`,
-            [transactionDelta, transaction.account_id]
+            `UPDATE accounts SET balance = balance - $1, max = max - $2 WHERE id = $3 RETURNING *`,
+            [transactionDelta, maxDelta, transaction.account_id]
         )
 
         await pool.query('COMMIT')

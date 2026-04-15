@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 interface AccountOption {
   id: string;
   name: string;
+  type?: string;
 }
 
 interface AddTransactionModalProps {
@@ -50,12 +51,29 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
     }
   }, [accounts, accountId]);
 
+  const selectedAccount = accounts.find((account) => account.id === accountId);
+  const isCreditAccount = selectedAccount?.type?.toLowerCase().includes("credit");
+  const availableCategories = isCreditAccount
+    ? categories.filter((option) => option !== "Income")
+    : categories;
+
+  useEffect(() => {
+    if (isCreditAccount && category === "Income") {
+      setCategory(availableCategories[0]);
+    }
+  }, [isCreditAccount]);
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
 
     if (!transactionDate || !category || !accountId) {
       setError("Date, category, and account are required.");
+      return;
+    }
+
+    if (isCreditAccount && category.toLowerCase() === "income") {
+      setError("Credit accounts cannot receive Income transactions.");
       return;
     }
 
@@ -187,12 +205,17 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               required
             >
-              {categories.map((option) => (
+              {availableCategories.map((option) => (
                 <option key={option} value={option}>
                   {option}
                 </option>
               ))}
             </select>
+            {isCreditAccount && (
+              <p className="mt-2 text-xs text-gray-500">
+                Credit accounts cannot be used for Income transactions.
+              </p>
+            )}
           </div>
 
           <div>
