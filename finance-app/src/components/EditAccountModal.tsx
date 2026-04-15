@@ -187,7 +187,7 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
               onClick={handleDelete}
               disabled={loading}
             >
-              Delete account
+              <img src="/delete.svg" alt="Delete" className="h-4 w-4" />
             </button>
             <div className="flex gap-3">
               <button

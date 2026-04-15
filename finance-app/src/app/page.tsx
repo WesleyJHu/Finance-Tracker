@@ -211,6 +211,9 @@ export default function Dashboard() {
     .map(([category, amount]) => ({ category, amount }));
 
   const maxCategoryAmount = sortedCategories.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
+  const budgetCapacity = (monthlyBudget?.base_budget ?? 0) + totalIncome;
+  const spendingProgress = budgetCapacity > 0 ? Math.min(totalExpenses / budgetCapacity, 1) : 0;
+  const remainingBudget = (monthlyBudget?.base_budget ?? 0) + totalIncome - totalExpenses;
   const accountNameById = Object.fromEntries(accounts.map((account) => [account.id, account.name]));
 
   if (loading) {
@@ -238,7 +241,6 @@ export default function Dashboard() {
       <header className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-8">
         <div className="flex flex-wrap gap-4 items-center text-slate-700">
           <span className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Home</span>
-          <button className="text-sm text-slate-500 hover:text-slate-900 transition">Reports</button>
           <button className="text-sm text-slate-500 hover:text-slate-900 transition">Settings</button>
         </div>
 
@@ -299,14 +301,13 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.8fr_1fr_1fr] mb-8">
+      <section className="grid gap-6 xl:grid-cols-[1.3fr_1fr_1fr_1fr] mb-8">
         <div className="rounded-3xl bg-slate-950 p-6 text-white shadow-lg shadow-slate-200/10">
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Total Monthly Spending</p>
               <p className="mt-4 text-4xl font-bold">{formatCurrency(totalExpenses)}</p>
             </div>
-            <div className="rounded-3xl bg-slate-900 px-4 py-2 text-sm font-semibold text-emerald-300">+4.2%</div>
           </div>
           <div className="mt-8 flex items-end gap-2">
             {Array.from({ length: 6 }).map((_, index) => (
@@ -317,6 +318,35 @@ export default function Dashboard() {
             ))}
           </div>
           <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(totalExpenses / 30)}</p>
+        </div>
+
+        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
+          <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Remaining Budget</p>
+          <div className="mt-5 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-4xl font-bold text-slate-900">{formatCurrency(remainingBudget)}</p>
+              <p className="mt-3 text-sm text-slate-500">Budget + income - spending</p>
+            </div>
+            <div className="rounded-3xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{monthlyBudget ? 'Updated' : 'No budget'}</div>
+          </div>
+          {monthlyBudget ? (
+            <div className="mt-6">
+              <div className="mb-3 flex items-center justify-between gap-4">
+                <p className="text-sm text-slate-500">Spending progress</p>
+                <p className="text-sm font-semibold text-slate-900">{Math.round(spendingProgress * 100)}%</p>
+              </div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400"
+                  style={{ width: `${Math.round(spendingProgress * 100)}%` }}
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="mt-6 rounded-3xl bg-slate-50 p-4 text-center text-sm text-slate-500">
+              No budget data available
+            </div>
+          )}
         </div>
 
         <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
@@ -382,9 +412,10 @@ export default function Dashboard() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-full border-separate border-spacing-y-3 text-left">
+          <table className="min-w-full border-collapse text-left">
             <thead>
               <tr className="text-sm uppercase tracking-[0.2em] text-slate-500">
+                <th className="px-1 py-3"></th>
                 <th className="px-4 py-3">Description</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Account</th>
@@ -395,29 +426,36 @@ export default function Dashboard() {
             </thead>
             <tbody>
               {transactions.map((transaction) => (
-                <tr key={transaction.id} className="rounded-3xl bg-slate-50 shadow-sm transition hover:bg-slate-100">
-                  <td className="px-4 py-4 text-sm text-slate-800">{transaction.description || transaction.category}</td>
-                  <td className="px-4 py-4 text-sm text-slate-500 uppercase">{transaction.category}</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">{accountNameById[transaction.account_id] || 'Unknown'}</td>
-                  <td className="px-4 py-4 text-sm text-slate-500">{formatDate(transaction.date)}</td>
-                  <td className={`px-4 py-4 text-right text-sm font-semibold ${transaction.category.toLowerCase() === 'income' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                <tr key={transaction.id} className="transition hover:bg-slate-100 border-b-8 border-white">
+                  <td className="bg-slate-50 px-4 py-4 rounded-l-2xl">
+                    <img
+                      src={`/${transaction.category.toLowerCase()}.svg`}
+                      alt={transaction.category}
+                      className="h-6 w-6"
+                    />
+                  </td>
+                  <td className="bg-slate-50 px-4 py-4 text-sm text-slate-800">{transaction.description || transaction.category}</td>
+                  <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500 uppercase">{transaction.category}</td>
+                  <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500">{accountNameById[transaction.account_id] || 'Unknown'}</td>
+                  <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500">{formatDate(transaction.date)}</td>
+                  <td className={`bg-slate-50 px-4 py-4 text-right text-sm font-semibold ${transaction.category.toLowerCase() === 'income' ? 'text-emerald-600' : 'text-rose-600'}`}>
                     {transaction.category.toLowerCase() === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
                   </td>
-                  <td className="px-4 py-4 text-right">
+                  <td className="bg-slate-50 px-4 py-4 text-right rounded-r-2xl">
                     <div className="inline-flex items-center gap-2">
                       <button
                         type="button"
                         className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                         onClick={() => setEditingTransaction(transaction)}
                       >
-                        Edit
+                        <img src="/edit.svg" alt="Edit" className="h-4 w-4" />
                       </button>
                       <button
                         type="button"
                         className="rounded-full border border-rose-300 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                         onClick={() => handleDeleteTransaction(transaction)}
                       >
-                        Delete
+                        <img src="/delete.svg" alt="Delete" className="h-4 w-4" />
                       </button>
                     </div>
                   </td>

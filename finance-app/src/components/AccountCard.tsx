@@ -46,13 +46,13 @@ const Card: React.FC<CardProps> = ({
           }}
           className="absolute right-3 top-3 z-10 rounded-md bg-white px-3 py-1 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-100"
         >
-          Edit
+          <img src="/edit.svg" alt="Edit" className="h-4 w-4" />
         </button>
         <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{accountType}</p>
         <h2 className="mt-4 text-xl font-semibold text-slate-900">{accountName}</h2>
         <p className="mt-3 text-sm text-slate-500">{formatCurrency(Math.abs(value))} / {formatCurrency(limit)}</p>
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-          <div className="h-full rounded-full bg-gradient-to-r from-blue-600 to-cyan-400" style={{ width: `${Math.min(limitUsed, 100)}%` }} />
+          <div className="h-full rounded-full bg-linear-to-r from-blue-600 to-cyan-400" style={{ width: `${Math.min(limitUsed, 100)}%` }} />
         </div>
         <p className="mt-2 text-sm text-slate-500">{limitUsed}% limit used</p>
       </div>
