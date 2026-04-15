@@ -352,8 +352,12 @@ export default function Dashboard() {
             <button className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400">
               Filter
             </button>
-            <button className="rounded-full bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800">
-              Export
+            <button
+              type="button"
+              onClick={() => setShowTransactionModal(true)}
+              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800"
+            >
+              Add Transaction
             </button>
           </div>
         </div>

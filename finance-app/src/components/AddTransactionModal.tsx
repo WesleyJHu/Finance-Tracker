@@ -37,7 +37,7 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   onCreate,
 }) => {
   const [transactionDate, setTransactionDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [amount, setAmount] = useState("0.00");
+  const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
   const [category, setCategory] = useState(categories[0]);
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
@@ -56,6 +56,11 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
 
     if (!transactionDate || !category || !accountId) {
       setError("Date, category, and account are required.");
+      return;
+    }
+
+    if (amount.trim() === "") {
+      setError("Amount is required.");
       return;
     }
 
@@ -226,7 +231,7 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             </button>
             <button
               type="submit"
-              className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
               disabled={loading || accounts.length === 0}
             >
               {loading ? "Adding..." : "Add Transaction"}
