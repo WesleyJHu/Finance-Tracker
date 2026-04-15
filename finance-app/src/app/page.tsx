@@ -192,14 +192,14 @@ export default function Dashboard() {
   });
 
   const totalExpenses = transactions
-    .filter((t) => t.category !== 'income')
+    .filter((t) => t.category.toLowerCase() !== 'income')
     .reduce((sum, t) => sum + t.amount, 0);
   const totalIncome = transactions
-    .filter((t) => t.category === 'income')
+    .filter((t) => t.category.toLowerCase() === 'income')
     .reduce((sum, t) => sum + t.amount, 0);
 
   const categoryTotals = transactions.reduce<Record<string, number>>((totals, transaction) => {
-    if (transaction.category === 'income') return totals;
+    if (transaction.category.toLowerCase() === 'income') return totals;
     const category = transaction.category || 'Uncategorized';
     totals[category] = (totals[category] || 0) + transaction.amount;
     return totals;
@@ -211,9 +211,9 @@ export default function Dashboard() {
     .map(([category, amount]) => ({ category, amount }));
 
   const maxCategoryAmount = sortedCategories.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
-  const budgetCapacity = (monthlyBudget?.base_budget ?? 0) + totalIncome;
+  const budgetCapacity = Number(monthlyBudget?.base_budget ?? 0) + totalIncome;
   const spendingProgress = budgetCapacity > 0 ? Math.min(totalExpenses / budgetCapacity, 1) : 0;
-  const remainingBudget = (monthlyBudget?.base_budget ?? 0) + totalIncome - totalExpenses;
+  const remainingBudget = budgetCapacity - totalExpenses;
   const accountNameById = Object.fromEntries(accounts.map((account) => [account.id, account.name]));
 
   if (loading) {
@@ -317,7 +317,7 @@ export default function Dashboard() {
               />
             ))}
           </div>
-          <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(totalExpenses / 30)}</p>
+          <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(totalExpenses / new Date().getDate())}</p>
         </div>
 
         <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
@@ -455,7 +455,7 @@ export default function Dashboard() {
                         className="rounded-full border border-rose-300 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                         onClick={() => handleDeleteTransaction(transaction)}
                       >
-                        <img src="/delete.svg" alt="Delete" className="h-4 w-4" />
+                        <img src="/delete-black.svg" alt="Delete" className="h-4 w-4" />
                       </button>
                     </div>
                   </td>

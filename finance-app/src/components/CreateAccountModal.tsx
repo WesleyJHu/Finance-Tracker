@@ -18,6 +18,9 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const isCreditAccountType = (type?: string) =>
+    type?.toLowerCase().includes('credit');
+
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError(null);
@@ -27,7 +30,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
       return;
     }
 
-    const parsedBalance = Number(accountBalance);
+    const parsedBalance = isCreditAccountType(accountType) ? -Math.abs(Number(accountBalance)) : Math.abs(Number(accountBalance));
     const parsedMax = Number(accountMax);
     if (isNaN(parsedBalance)) {
       setError("Balance must be a valid number.");
