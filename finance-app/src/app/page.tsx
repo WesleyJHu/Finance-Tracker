@@ -227,6 +227,7 @@ export default function Dashboard() {
 
   const formatDate = (dateString: string) =>
     new Date(dateString).toLocaleDateString('en-US', {
+      timeZone: 'America/New_York',
       month: 'short',
       day: 'numeric',
       year: 'numeric',
