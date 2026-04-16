@@ -262,7 +262,7 @@ export default function Dashboard() {
 
   const maxCategoryAmount = sortedCategories.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
   const budgetCapacity = Number(balanceSnapshot?.starting_balance ?? 0) + Number(monthlyBudget?.base_budget ?? 0);
-  const spendingProgress = budgetCapacity > 0 ? Math.min(totalExpenses / budgetCapacity, 1) : 0;
+  const spendingProgress = (budgetCapacity + totalIncome) > 0 ? Math.min(totalExpenses / (budgetCapacity + totalIncome), 1) : 0;
   const remainingBudget = budgetCapacity - totalExpenses + totalIncome;
   const accountNameById = Object.fromEntries(accounts.map((account) => [account.id, account.name]));
 
