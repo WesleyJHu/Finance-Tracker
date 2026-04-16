@@ -5,7 +5,7 @@ export const runtime = "nodejs"
 
 type BalanceSnapshotBody = {
   starting_balance: number
-  ending_balance: number
+  ending_balance?: number
   month: number
   year: number
 }
@@ -38,7 +38,7 @@ export async function GET(req: NextRequest) {
     const result = await pool.query(
       `
       SELECT *
-      FROM "balance_snapshots"
+      FROM "monthly_balance_snapshot"
       WHERE month = $1 AND year = $2
     `,
       [month, year]
@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
 
         if (
             typeof starting_balance !== "number" ||
-            typeof ending_balance !== "number" ||
+            (ending_balance !== undefined && typeof ending_balance !== "number") ||
             typeof month !== "number" ||
             typeof year !== "number" ||
             month < 1 ||
@@ -78,7 +78,7 @@ export async function POST(req: NextRequest) {
 
         const result = await pool.query(
             `
-            INSERT INTO "balance_snapshots"
+            INSERT INTO "monthly_balance_snapshot"
             (starting_balance, ending_balance, month, year)
             VALUES ($1, $2, $3, $4)
             RETURNING *
@@ -106,23 +106,43 @@ export async function PATCH(req: NextRequest) {
     const body = await req.json()
     const { starting_balance, ending_balance, month, year } = body
 
-    if ( !starting_balance || !ending_balance || !month || !year ) {
+    if ( !month || !year ) {
       return NextResponse.json(
-        { error: "Missing required fields" },
+        { error: "Month and year are required" },
         { status: 400 }
       )
     }
 
+    if (starting_balance === undefined && ending_balance === undefined) {
+      return NextResponse.json(
+        { error: "At least one of starting_balance or ending_balance must be provided" },
+        { status: 400 }
+      )
+    }
+
+    const updates = []
+    const values = []
+
+    if (starting_balance !== undefined) {
+      updates.push(`starting_balance = $${updates.length + 1}`)
+      values.push(starting_balance)
+    }
+
+    if (ending_balance !== undefined) {
+      updates.push(`ending_balance = $${updates.length + 1}`)
+      values.push(ending_balance)
+    }
+
+    values.push(month, year)
+
     const result = await pool.query(
       `
-      UPDATE "balance_snapshots"
-      SET
-        starting_balance = $1,
-        ending_balance = $2
-      WHERE month = $3 AND year = $4
+      UPDATE "monthly_balance_snapshot"
+      SET ${updates.join(', ')}
+      WHERE month = $${updates.length + 1} AND year = $${updates.length + 2}
       RETURNING *
       `,
-        [starting_balance, ending_balance, month, year]
+        values
     )
 
     if (result.rowCount === 0) {

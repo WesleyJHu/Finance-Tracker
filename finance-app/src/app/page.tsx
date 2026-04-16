@@ -5,6 +5,7 @@ import Card from '../components/AccountCard';
 import CreateAccountModal from '../components/CreateAccountModal';
 import AddTransactionModal from '../components/AddTransactionModal';
 import EditTransactionModal from '../components/EditTransactionModal';
+import SettingsModal from '../components/SettingsModal';
 
 interface Account {
   id: string;
@@ -31,14 +32,24 @@ interface MonthlyBudget {
   spent: number;
 }
 
+interface BalanceSnapshot {
+  id: string;
+  starting_balance: number;
+  ending_balance: number | null;
+  month: number;
+  year: number;
+}
+
 export default function Dashboard() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [monthlyBudget, setMonthlyBudget] = useState<MonthlyBudget | null>(null);
+  const [balanceSnapshot, setBalanceSnapshot] = useState<BalanceSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showTransactionModal, setShowTransactionModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   const handleAccountUpdate = (updatedAccount: { id: string; name: string; type: string; balance: number; max?: number }) => {
     setAccounts(prev => prev.map(acc => acc.id === updatedAccount.id ? { ...acc, ...updatedAccount } : acc));
@@ -162,6 +173,19 @@ export default function Dashboard() {
         if (budgetData.length > 0) {
           setMonthlyBudget(budgetData[0]);
         }
+
+        const snapshotRes = await fetch(`/api/balance_snapshot?month=${month}&year=${year}`);
+        if (!snapshotRes.ok) {
+          console.error('Failed to fetch balance snapshot', {
+            status: snapshotRes.status,
+            statusText: snapshotRes.statusText,
+          });
+          throw new Error('Failed to fetch balance snapshot');
+        }
+        const snapshotData = await snapshotRes.json();
+        if (snapshotData.length > 0) {
+          setBalanceSnapshot(snapshotData[0]);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
         console.error('Fetch error:', err);
@@ -211,7 +235,7 @@ export default function Dashboard() {
     .map(([category, amount]) => ({ category, amount }));
 
   const maxCategoryAmount = sortedCategories.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
-  const budgetCapacity = Number(monthlyBudget?.base_budget ?? 0) + totalIncome;
+  const budgetCapacity = Number(balanceSnapshot?.starting_balance ?? 0);
   const spendingProgress = budgetCapacity > 0 ? Math.min(totalExpenses / budgetCapacity, 1) : 0;
   const remainingBudget = budgetCapacity - totalExpenses;
   const accountNameById = Object.fromEntries(accounts.map((account) => [account.id, account.name]));
@@ -241,7 +265,13 @@ export default function Dashboard() {
       <header className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-8">
         <div className="flex flex-wrap gap-4 items-center text-slate-700">
           <span className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Home</span>
-          <button className="text-sm text-slate-500 hover:text-slate-900 transition">Settings</button>
+          <button
+            type="button"
+            onClick={() => setShowSettingsModal(true)}
+            className="text-sm text-slate-500 hover:text-slate-900 transition"
+          >
+            Settings
+          </button>
         </div>
 
         <button
@@ -293,7 +323,7 @@ export default function Dashboard() {
           <button
             type="button"
             onClick={() => setShowAccountModal(true)}
-            className="flex min-h-[176px] flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-slate-400 hover:text-slate-800"
+            className="flex min-h-44 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-slate-400 hover:text-slate-800"
           >
             <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-2xl">+</span>
             <span className="text-sm font-semibold">Link New Account</span>
@@ -337,7 +367,7 @@ export default function Dashboard() {
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400"
+                  className="h-full rounded-full bg-linear-to-r from-sky-500 to-cyan-400"
                   style={{ width: `${Math.round(spendingProgress * 100)}%` }}
                 />
               </div>
@@ -380,7 +410,7 @@ export default function Dashboard() {
                   </div>
                   <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
                     <div
-                      className="h-full rounded-full bg-gradient-to-r from-sky-500 to-cyan-400"
+                      className="h-full rounded-full bg-linear-to-r from-sky-500 to-cyan-400"
                       style={{ width: Math.round((entry.amount / maxCategoryAmount) * 100) + '%' }}
                     />
                   </div>
@@ -415,7 +445,6 @@ export default function Dashboard() {
           <table className="min-w-full border-collapse text-left">
             <thead>
               <tr className="text-sm uppercase tracking-[0.2em] text-slate-500">
-                <th className="px-1 py-3"></th>
                 <th className="px-4 py-3">Description</th>
                 <th className="px-4 py-3">Category</th>
                 <th className="px-4 py-3">Account</th>
@@ -427,14 +456,16 @@ export default function Dashboard() {
             <tbody>
               {transactions.map((transaction) => (
                 <tr key={transaction.id} className="transition hover:bg-slate-100 border-b-8 border-white">
-                  <td className="bg-slate-50 px-4 py-4 rounded-l-2xl">
-                    <img
-                      src={`/${transaction.category.toLowerCase()}.svg`}
-                      alt={transaction.category}
-                      className="h-6 w-6"
-                    />
+                  <td className="bg-slate-50 px-4 py-4 text-sm text-slate-800 rounded-l-2xl">
+                    <div className="flex items-center gap-2">
+                      <img
+                        src={`/${transaction.category.toLowerCase()}.svg`}
+                        alt={transaction.category}
+                        className="h-6 w-6"
+                      />
+                      <span>{transaction.description || transaction.category}</span>
+                    </div>
                   </td>
-                  <td className="bg-slate-50 px-4 py-4 text-sm text-slate-800">{transaction.description || transaction.category}</td>
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500 uppercase">{transaction.category}</td>
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500">{accountNameById[transaction.account_id] || 'Unknown'}</td>
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500">{formatDate(transaction.date)}</td>
@@ -495,6 +526,12 @@ export default function Dashboard() {
             setAccounts((current) => [...current, newAccount]);
             setShowAccountModal(false);
           }}
+        />
+      )}
+      {showSettingsModal && (
+        <SettingsModal
+          onClose={() => setShowSettingsModal(false)}
+          accounts={accounts}
         />
       )}
     </main>

@@ -8,36 +8,33 @@ type MonthlyBudgetBody = {
     base_budget: number
 }
 
-//Gets monthly budget for a specific month
+//Gets monthly budget for a specific month or all if no month specified
 export async function GET(req: NextRequest) {
     try {
         const { searchParams } = new URL(req.url);
 
         const monthParam = searchParams.get("month")
 
-        if (!monthParam) {
-            return NextResponse.json(
-                { error: "Month is required" },
-                { status: 400 }
-            )
-        }
-
-        const month = Number(monthParam)
-
-        if (isNaN(month) || month < 1 || month > 12) {
-            return NextResponse.json(
-                { error: "Invalid month" },
-                { status: 400 }
-            )
-        }
-
         let query = `
             SELECT *
             FROM "monthly_budgets"
-            WHERE month = $1
         `
 
-        const values: any[] = [month]
+        const values: any[] = []
+
+        if (monthParam) {
+            const month = Number(monthParam)
+
+            if (isNaN(month) || month < 1 || month > 12) {
+                return NextResponse.json(
+                    { error: "Invalid month" },
+                    { status: 400 }
+                )
+            }
+
+            query += ` WHERE month = $1`
+            values.push(month)
+        }
 
         const result = await pool.query(query, values)
 
