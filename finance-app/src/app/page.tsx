@@ -225,13 +225,16 @@ export default function Dashboard() {
       currency: 'USD',
     }).format(num);
 
-  const formatDate = (dateString: string) =>
-    new Date(dateString).toLocaleDateString('en-US', {
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+
+    return date.toLocaleDateString('en-US', {
       timeZone: 'America/New_York',
       month: 'short',
       day: 'numeric',
       year: 'numeric',
     });
+  };
 
   const normalizeTransaction = (transaction: any): Transaction => ({
     ...transaction,
