@@ -6,11 +6,17 @@ async function processRecurringPayments() {
   try {
     // Get current date
     const now = new Date();
-    const currentDay = now.getDate(); // 1-31
-    const currentDayOfWeek = now.getDay(); // 0=Sunday, 1=Monday, ..., 6=Saturday
-    const currentMonth = now.getMonth() + 1; // 1-12
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(now);
 
-    console.log(`Current date: ${now.toISOString()}, day: ${currentDay}, dayOfWeek: ${currentDayOfWeek}, month: ${currentMonth}`);
+    const currentDay = Number(parts.find(p => p.type === "day")?.value); // 1-31
+    const currentMonth = Number(parts.find(p => p.type === "month")?.value ?? 0);
+
+    console.log(`Current date: ${now.toISOString()}, day: ${currentDay}, month: ${currentMonth}`);
 
     // Fetch all recurring payments
     const recurringQuery = 'SELECT * FROM recurring_payments';

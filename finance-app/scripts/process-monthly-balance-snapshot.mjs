@@ -6,8 +6,15 @@ async function processMonthlyBalanceSnapshot() {
   try {
     // Get current date
     const now = new Date();
-    const currentMonth = now.getMonth() + 1; // 1-12
-    const currentYear = now.getFullYear();
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(now);
+
+    const currentMonth = Number(parts.find(p => p.type === "month")?.value);
+    const currentYear = Number(parts.find(p => p.type === "year")?.value);
 
     // Calculate previous month
     const prevDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);

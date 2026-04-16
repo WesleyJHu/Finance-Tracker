@@ -86,10 +86,6 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
   };
 
   const handleDelete = async () => {
-    if (!window.confirm("Delete this account? This action cannot be undone.")) {
-      return;
-    }
-
     setLoading(true);
     try {
       const res = await fetch("/api/accounts", {

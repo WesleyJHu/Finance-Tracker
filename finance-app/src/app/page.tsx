@@ -50,6 +50,9 @@ export default function Dashboard() {
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [day, setDay] = useState(1);
+  const [month, setMonth] = useState(1);
+  const [year, setYear] = useState(2024);
 
   const handleAccountUpdate = (updatedAccount: { id: string; name: string; type: string; balance: number; max?: number }) => {
     setAccounts(prev => prev.map(acc => acc.id === updatedAccount.id ? { ...acc, ...updatedAccount } : acc));
@@ -150,8 +153,20 @@ export default function Dashboard() {
         setError(null);
 
         const now = new Date();
-        const month = now.getMonth() + 1;
-        const year = now.getFullYear();
+        const parts = new Intl.DateTimeFormat("en-US", {
+          timeZone: "America/New_York",
+          year: "numeric",
+          month: "2-digit",
+          day: "2-digit"
+        }).formatToParts(now);
+
+        const month = Number(parts.find(p => p.type === "month")!.value);
+        const year = Number(parts.find(p => p.type === "year")!.value);
+        const day = Number(parts.find(p => p.type === "day")!.value);
+
+        setMonth(month);
+        setYear(year);
+        setDay(day);
 
         const accountsRes = await fetch('/api/accounts');
         if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
@@ -197,6 +212,13 @@ export default function Dashboard() {
     fetchData();
   }, []);
 
+    const formattedDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    });
+
   const formatCurrency = (num: number) =>
     new Intl.NumberFormat('en-US', {
       style: 'currency',
@@ -231,7 +253,7 @@ export default function Dashboard() {
 
   const sortedCategories = Object.entries(categoryTotals)
     .sort(([, a], [, b]) => b - a)
-    .slice(0, 4)
+    .slice(0, 5)
     .map(([category, amount]) => ({ category, amount }));
 
   const maxCategoryAmount = sortedCategories.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
@@ -263,12 +285,13 @@ export default function Dashboard() {
   return (
     <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
       <header className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-8">
-        <div className="flex flex-wrap gap-4 items-center text-slate-700">
+        <div className="flex flex-wrap gap-8 items-center text-slate-700">
           <span className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Home</span>
+
           <button
             type="button"
             onClick={() => setShowSettingsModal(true)}
-            className="text-sm text-slate-500 hover:text-slate-900 transition"
+            className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 hover:text-slate-900 transition"
           >
             Settings
           </button>
@@ -284,10 +307,12 @@ export default function Dashboard() {
       </header>
 
       <section className="mb-8">
+        <h1 className="text-4xl md:text-5xl font-bold text-slate-900 text-center">
+          Today is {formattedDate}
+        </h1>
         <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Account Overview</p>
-            <h1 className="mt-2 text-3xl font-bold text-slate-900">Your Active Accounts</h1>
+            <h1 className="mt-2 text-3xl font-bold text-slate-900">Account Overview</h1>
           </div>
           <div className="flex flex-wrap gap-3">
             <button
@@ -300,13 +325,13 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-6 xl:grid-cols-4 lg:grid-cols-3 md:grid-cols-2">
+        <div className="mt-6 grid gap-4 xl:grid-cols-4 lg:grid-cols-3 md:grid-cols-2">
           {accounts.length === 0 ? (
             <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
               <p className="text-slate-500">No accounts found. Add one to get started.</p>
             </div>
           ) : (
-            accounts.slice(0, 3).map((account) => (
+            accounts.map((account) => (
               <Card
                 key={account.id}
                 id={account.id}
@@ -331,7 +356,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.3fr_1fr_1fr_1fr] mb-8">
+      <section className="grid gap-6 xl:grid-cols-[1.3fr_1fr_1fr_1fr] mb-8 py-4">
         <div className="rounded-3xl bg-slate-950 p-6 text-white shadow-lg shadow-slate-200/10">
           <div className="flex items-center justify-between gap-4">
             <div>
@@ -347,7 +372,7 @@ export default function Dashboard() {
               />
             ))}
           </div>
-          <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(totalExpenses / new Date().getDate())}</p>
+          <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(totalExpenses / day)}</p>
         </div>
 
         <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
