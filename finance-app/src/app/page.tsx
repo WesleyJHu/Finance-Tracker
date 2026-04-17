@@ -483,7 +483,7 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {transactions.map((transaction) => (
+              {transactions.toReversed().map((transaction) => (
                 <tr key={transaction.id} className="transition hover:bg-slate-100 border-b-8 border-white">
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-800 rounded-l-2xl">
                     <div className="flex items-center gap-2">

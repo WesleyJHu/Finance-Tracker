@@ -36,9 +36,9 @@ async function processRecurringPayments() {
         // Create transaction
         const transactionData = {
           date: now.toISOString().split('T')[0], // YYYY-MM-DD format
-          amount: payment.amount,
+          amount: Number(payment.amount),
           description: payment.description || `${payment.category} (Recurring)`,
-          category: payment.category,
+          category: payment.category.toLowerCase(),
           account_id: payment.account_id
         };
 
@@ -66,17 +66,17 @@ async function processRecurringPayments() {
 
           if (accountResult.rows.length > 0) {
             const account = accountResult.rows[0];
-            let newBalance = account.balance;
-            let newMax = account.max;
+            let newBalance = Number(account.balance);
+            let newMax = Number(account.max);
 
             // Apply transaction effects (similar to the frontend logic)
             const isCreditAccount = account.type?.toLowerCase().includes('credit');
             const delta = payment.category.toLowerCase() === 'income' ? 0 : -payment.amount;
             const maxDelta = payment.category.toLowerCase() === 'income' ? payment.amount : 0;
 
-            newBalance += delta;
+            newBalance += Number(delta);
             if (!isCreditAccount) {
-              newMax += maxDelta;
+              newMax += Number(maxDelta);
             }
 
             // Update account
@@ -91,6 +91,16 @@ async function processRecurringPayments() {
           processedCount++;
         } catch (error) {
           console.error(`Error creating transaction for payment ${payment.id}:`, error);
+          console.log("──────────────");
+          console.log("PAYMENT DEBUG:");
+          console.log({
+            id: payment.id,
+            rawAmount: payment.amount,
+            parsedAmount: Number(payment.amount),
+            category: payment.category,
+            account_id: payment.account_id,
+          });
+          console.log("──────────────");
         }
       }
     }
