@@ -32,12 +32,30 @@ const AccountModal: React.FC<AccountModalProps> = ({
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(`/api/transactions?account=${accountId}`);
+
+        const now = new Date();
+        const month = now.getMonth() + 1;
+        const year = now.getFullYear();
+
+        const res = await fetch(
+          `/api/transactions?account=${accountId}&month=${month}&year=${year}`
+        );
+
         if (!res.ok) {
           throw new Error("Failed to fetch transactions");
         }
+
         const data = await res.json();
-        setTransactions(Array.isArray(data) ? data : []);
+
+        const filtered = (Array.isArray(data) ? data : []).filter((tx) => {
+          const d = new Date(tx.date);
+          return (
+            d.getMonth() + 1 === month &&
+            d.getFullYear() === year
+          );
+        });
+
+        setTransactions(filtered);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
         setTransactions([]);
