@@ -97,6 +97,69 @@ async function processMonthlyBalanceSnapshot() {
 
     console.log('Monthly balance snapshot processing completed successfully');
 
+    // ===============================
+    // UPDATE ACCOUNTS MONTHLY BALANCES
+    // ===============================
+
+    console.log('Updating account balances for monthly reset...');
+
+    // 1. Get all accounts
+    const accountsResult = await pool.query('SELECT * FROM accounts');
+    const accounts = accountsResult.rows;
+
+    // 2. Get total spending per account for current month
+    const spendingQuery = `
+      SELECT 
+        account_id,
+        COALESCE(SUM(amount), 0) AS total_spent
+      FROM transactions
+      WHERE category != $1
+        AND EXTRACT(MONTH FROM date) = $2
+        AND EXTRACT(YEAR FROM date) = $3
+      GROUP BY account_id
+    `;
+
+    const spendingResult = await pool.query(spendingQuery, [
+      'income',
+      currentMonth,
+      currentYear,
+    ]);
+
+    // Map: account_id -> spent
+    const spendingMap = new Map();
+    for (const row of spendingResult.rows) {
+      spendingMap.set(row.account_id, Number(row.total_spent));
+    }
+
+    // 3. Update each account
+    for (const account of accounts) {
+      const type = (account.type || '').toLowerCase();
+      const spent = spendingMap.get(account.id) || 0;
+
+      let newBalance;
+
+      if (type === 'credit' || type === 'brokerage') {
+        newBalance = 0;
+      } else {
+        newBalance = Number(account.balance) - spent;
+      }
+
+      await pool.query(
+        `
+        UPDATE accounts
+        SET balance = $1
+        WHERE id = $2
+        `,
+        [newBalance, account.id]
+      );
+
+      console.log(
+        `Updated ${account.name} (${account.type}) → $${newBalance.toFixed(2)}`
+      );
+    }
+
+    console.log('Account balances updated successfully');
+
   } catch (error) {
     console.error('Error processing monthly balance snapshot:', error);
     throw error;
