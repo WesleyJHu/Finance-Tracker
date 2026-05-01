@@ -39,3 +39,4 @@ next-env.d.ts
 Dockerfile
 docker-compose.yml
 docker/
+finance-app/docker-compose.yml
