@@ -38,3 +38,4 @@ next-env.d.ts
 #dockerfiles
 Dockerfile
 docker-compose.yml
+docker/
