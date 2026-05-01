@@ -29,12 +29,16 @@ cron.schedule(
 cron.schedule(
   "0 0 1 * *",
   async () => {
-    console.log("Running monthly snapshot job...");
-    await runScript("./scripts/process-monthly-balance-snapshot.mjs");
+    console.log("[CRON] Running monthly snapshot job...");
+
+    try {
+      await runScript("./scripts/process-monthly-balance-snapshot.mjs");
+      console.log("[CRON] Snapshot job completed successfully");
+    } catch (err) {
+      console.error("[CRON] Snapshot job failed:", err);
+    }
   },
-  {
-    timezone: "America/New_York",
-  }
+  { timezone: "America/New_York" }
 );
 
 console.log("Worker started...");
