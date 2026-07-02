@@ -27,8 +27,8 @@ async function processMonthlyBalanceSnapshot() {
     // Get current total balance which is starting_balance + all income - all expenses
     const totalExpensesQuery = 'SELECT COALESCE(SUM(amount), 0) AS total_expenses FROM transactions WHERE category != $1 AND EXTRACT(MONTH FROM date) = $2 AND EXTRACT(YEAR FROM date) = $3';
     const totalIncomeQuery = 'SELECT COALESCE(SUM(amount), 0) AS total_income FROM transactions WHERE category = $1 AND EXTRACT(MONTH FROM date) = $2 AND EXTRACT(YEAR FROM date) = $3';
-    const totalExpensesResult = await pool.query(totalExpensesQuery, ['income', currentMonth, currentYear]);
-    const totalIncomeResult = await pool.query(totalIncomeQuery, ['income', currentMonth, currentYear]);
+    const totalExpensesResult = await pool.query(totalExpensesQuery, ['income', prevMonth, prevYear]);
+    const totalIncomeResult = await pool.query(totalIncomeQuery, ['income', prevMonth, prevYear]);
     const startingBalanceQuery = 'SELECT starting_balance FROM monthly_balance_snapshot WHERE month = $1 AND year = $2';
     const startingBalanceResult = await pool.query(startingBalanceQuery, [prevMonth, prevYear]);
     const currentBalance = Number(startingBalanceResult.rows[0].starting_balance) + Number(totalIncomeResult.rows[0].total_income) - Number(totalExpensesResult.rows[0].total_expenses);
