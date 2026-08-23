@@ -1,171 +1,130 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db';
+import { NextRequest, NextResponse } from "next/server"
+import { pool, HttpError } from "@/lib/db"
+import {
+  buildUpdate,
+  handleRouteError,
+  readDeleteId,
+  requireNumber,
+  serializeAccount,
+} from "@/lib/api"
+import type { AccountCreateBody, AccountUpdateBody } from "@/types/api"
 
 export const runtime = "nodejs"
 
-type AccountBody = {
-    name: string
-    type: string
-    balance: number
-    max: number
-}
+const UPDATABLE_COLUMNS = ["name", "type", "balance", "max"] as const
 
-//Gets all accounts
-export async function GET() {
+// Gets all accounts
+export async function GET(req: NextRequest) {
     try {
-        const result = await pool.query('SELECT * FROM accounts');
-        const accounts = result.rows.map((row) => ({
-            ...row,
-            balance: Number(row.balance),
-            max: Number(row.max),
-        }))
-        return NextResponse.json(accounts);
+        // Archived accounts are hidden everywhere by default. The dashboard,
+        // both transaction pickers and the settings modal all read this one
+        // endpoint, so they all honour it without further changes.
+        const includeArchived =
+            new URL(req.url).searchParams.get("includeArchived") === "true"
+
+        // No ORDER BY: card order is unspecified heap order today, and adding
+        // one here would visibly reshuffle the dashboard. Left for Phase 4.
+        const result = await pool.query(
+            includeArchived
+                ? "SELECT * FROM accounts"
+                : "SELECT * FROM accounts WHERE archived = false"
+        )
+
+        return NextResponse.json(result.rows.map(serializeAccount))
     } catch (error) {
-        console.error("GET /accounts error:", error);
-        return NextResponse.json(
-            { error: "Internal Server Error" },
-            { status: 500 }
-        );
+        return handleRouteError(error, "GET /accounts")
     }
 }
 
-//Posts a new account
+// Creates a new account
 export async function POST(req: NextRequest) {
     try {
-        const body: AccountBody = await req.json();
+        const body: AccountCreateBody = await req.json()
         const { name, type, balance, max } = body
 
-        if (!name || !type || balance === undefined || max === undefined) {
-            return NextResponse.json(
-                { error: "Missing required fields" },
-                { status: 400 }
-            )
+        if (!name || !type) {
+            throw new HttpError(400, "Name and type are required")
         }
-        const parsedBalance = Number(balance)
-        const parsedMax = Number(max)
 
-        if (isNaN(parsedBalance) || isNaN(parsedMax)) {
-            return NextResponse.json(
-                { error: "Invalid balance or max" },
-                { status: 400 }
-            )
-        }
+        const parsedBalance = requireNumber(balance, "balance")
+        const parsedMax = requireNumber(max, "max")
+
         const result = await pool.query(
-            'INSERT INTO accounts (name, type, balance, max) VALUES ($1, $2, $3, $4) RETURNING *',
+            "INSERT INTO accounts (name, type, balance, max) VALUES ($1, $2, $3, $4) RETURNING *",
             [name, type, parsedBalance, parsedMax]
         )
-        const newAccount = {
-            ...result.rows[0],
-            balance: Number(result.rows[0].balance),
-            max: Number(result.rows[0].max),
-        }
-        return NextResponse.json(newAccount, { status: 201 })
-    } catch (error: any) {
-        console.error("POST /accounts error:", error)
-        console.error(error)
-        console.error(error.message)
-        console.error(error.detail)
-        return NextResponse.json(
-            { error: "Internal Server Error" },
-            { status: 500 }
-        )
+
+        return NextResponse.json(serializeAccount(result.rows[0]), { status: 201 })
+    } catch (error) {
+        return handleRouteError(error, "POST /accounts")
     }
 }
 
-//Edits an existing account
+// Edits an existing account
 export async function PATCH(req: NextRequest) {
     try {
-        const body = await req.json()
+        const body: AccountUpdateBody = await req.json()
         const { id, name, type, balance, max } = body
 
         if (!id) {
-            return NextResponse.json(
-                { error: "Missing account ID" },
-                { status: 400 }
-            )
+            throw new HttpError(400, "Missing account ID")
         }
 
-        const parsedBalance = balance !== undefined ? Number(balance) : undefined
-        const parsedMax = max !== undefined ? Number(max) : undefined
+        // Only the fields actually supplied are written. The previous
+        // COALESCE-everything statement could not distinguish "not supplied"
+        // from "set to null".
+        const update = buildUpdate(
+            {
+                name,
+                type,
+                balance: balance === undefined ? undefined : requireNumber(balance, "balance"),
+                max: max === undefined ? undefined : requireNumber(max, "max"),
+            },
+            UPDATABLE_COLUMNS
+        )
 
-        if (parsedBalance !== undefined && isNaN(parsedBalance)) {
-            return NextResponse.json(
-                { error: "Invalid balance" },
-                { status: 400 }
-            )
+        if (!update) {
+            throw new HttpError(400, "No fields to update")
         }
-        if (parsedMax !== undefined && isNaN(parsedMax)) {
-            return NextResponse.json(
-                { error: "Invalid max" },
-                { status: 400 }
-            )
-        }
-        
+
         const result = await pool.query(
-            `
-            UPDATE accounts
-            SET name = COALESCE($1, name),
-                type = COALESCE($2, type),
-                balance = COALESCE($3, balance),
-                max = COALESCE($4, max)
-            WHERE id = $5
-            RETURNING *
-        `,
-            [name, type, parsedBalance, parsedMax, id]
+            `UPDATE accounts SET ${update.clause} WHERE id = $${update.values.length + 1} RETURNING *`,
+            [...update.values, id]
         )
-        
-        if (result.rows.length === 0) {
-            return NextResponse.json(
-                { error: "Account not found" },
-                { status: 404 }
-            )
+
+        if (result.rowCount === 0) {
+            throw new HttpError(404, "Account not found")
         }
-        const updatedAccount = {
-            ...result.rows[0],
-            balance: Number(result.rows[0].balance),
-            max: Number(result.rows[0].max),
-        }
-        return NextResponse.json(updatedAccount)
-    } catch (error: any) {
-        console.error("PATCH /accounts error:", error)
-        console.error(error)
-        console.error(error.message)
-        console.error(error.detail)
-        return NextResponse.json(
-            { error: "Internal Server Error" },
-            { status: 500 }
-        )
+
+        return NextResponse.json(serializeAccount(result.rows[0]))
+    } catch (error) {
+        return handleRouteError(error, "PATCH /accounts")
     }
 }
 
-//Deletes an account
+// Archives an account.
+//
+// Deliberately not a hard delete. transactions.account_id is NOT NULL, so a
+// real DELETE either fails outright or would have to take a year of history
+// with it. Archiving hides the account everywhere while leaving its
+// transactions intact and still counted in monthly totals.
+//
+// Kept on the DELETE verb so the client contract is unchanged.
 export async function DELETE(req: NextRequest) {
     try {
-        const body = await req.json()
-        const { id } = body
+        const id = await readDeleteId(req)
 
-        if (!id) {
-            return NextResponse.json({ error: "Missing account ID" }, { status: 400 })
-        }
         const result = await pool.query(
-            `
-            DELETE FROM "accounts"
-            WHERE id = $1
-            RETURNING *
-        `,
+            "UPDATE accounts SET archived = true WHERE id = $1 RETURNING *",
             [id]
         )
 
-        if (result.rows.length === 0) {
-            return NextResponse.json({ error: "Account not found" }, { status: 404 })
+        if (result.rowCount === 0) {
+            throw new HttpError(404, "Account not found")
         }
 
-        return NextResponse.json({ message: "Account deleted successfully" })
-    } catch (error: any) {
-        console.error("DELETE /accounts error:", error)
-        console.error(error)
-        console.error(error.message)
-        console.error(error.detail)
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+        return NextResponse.json({ message: "Account archived successfully" })
+    } catch (error) {
+        return handleRouteError(error, "DELETE /accounts")
     }
 }

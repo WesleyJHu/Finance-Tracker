@@ -1,31 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
-
-interface MonthlyBudget {
-  id: string;
-  month: number;
-  year: number;
-  base_budget: number;
-  spent: number;
-}
-
-interface RecurringPayment {
-  id: string;
-  amount: number;
-  day_of_month: number;
-  description?: string;
-  account_id: string;
-  category: string;
-}
-
-interface Account {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  max: number;
-}
+import { formatCurrency } from '@/lib/format';
+import { CATEGORIES, displayCategory } from '@/lib/categories';
+import type { Account, MonthlyBudget, RecurringPayment } from '@/types/api';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -35,17 +13,6 @@ interface SettingsModalProps {
 const monthNames = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December'
-];
-
-const categories = [
-  "Income",
-  "Grocery",
-  "Food",
-  "Tech",
-  "Transportation",
-  "Entertainment",
-  "Bills",
-  "Misc",
 ];
 
 export default function SettingsModal({ onClose, accounts }: SettingsModalProps) {
@@ -188,7 +155,7 @@ export default function SettingsModal({ onClose, accounts }: SettingsModalProps)
     }
   };
 
-  const handleDeleteRecurring = async (id: string) => {
+  const handleDeleteRecurring = async (id: number) => {
     if (!confirm('Are you sure you want to delete this recurring payment?')) return;
 
     try {
@@ -214,16 +181,10 @@ export default function SettingsModal({ onClose, accounts }: SettingsModalProps)
       amount: payment.amount.toString(),
       day_of_month: payment.day_of_month.toString(),
       description: payment.description || '',
-      account_id: payment.account_id,
+      account_id: payment.account_id ?? '',
       category: payment.category
     });
   };
-
-  const formatCurrency = (num: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(num);
 
   if (loading) {
     return (
@@ -373,8 +334,13 @@ export default function SettingsModal({ onClose, accounts }: SettingsModalProps)
                     className="w-full px-3 py-2 border border-slate-300 rounded-md"
                   >
                     <option value="">Select Category</option>
-                    {categories.map(category => (
-                      <option key={category} value={category}>{category}</option>
+                    {/* recurring_payments.category stores Title Case, unlike
+                        transactions.category. The job lowercases it on the way
+                        into a transaction. See lib/categories.ts. */}
+                    {CATEGORIES.map(category => (
+                      <option key={category} value={displayCategory(category)}>
+                        {displayCategory(category)}
+                      </option>
                     ))}
                   </select>
                 </div>

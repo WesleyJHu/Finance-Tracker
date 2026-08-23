@@ -35,8 +35,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-#dockerfiles
-Dockerfile
-docker-compose.yml
+# docker
+# Dockerfile and docker-compose.yml are deliberately tracked: they are the
+# deployment topology, and losing them means losing the ability to rebuild
+# this app. Secrets stay in .env, which is ignored above.
 docker/
-finance-app/docker-compose.yml

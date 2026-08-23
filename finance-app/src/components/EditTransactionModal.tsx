@@ -1,42 +1,16 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-
-interface AccountOption {
-  id: string;
-  name: string;
-  type?: string;
-}
-
-interface TransactionData {
-  id: string;
-  date: string;
-  amount: number;
-  description?: string;
-  category: string;
-  account_id: string;
-}
+import { isCreditAccount as isCreditAccountType } from "@/lib/accountTypes";
+import { CATEGORIES, INCOME, displayCategory, normalizeCategory } from "@/lib/categories";
+import type { AccountOption, Transaction, WithAccounts } from "@/types/api";
 
 interface EditTransactionModalProps {
-  transaction: TransactionData;
+  transaction: Transaction;
   accounts: AccountOption[];
   onClose: () => void;
-  onUpdate: (transaction: TransactionData) => void;
+  onUpdate: (transaction: WithAccounts<Transaction>) => void;
 }
-
-const categories = [
-  "Income",
-  "Grocery",
-  "Food",
-  "Tech",
-  "Transportation",
-  "Entertainment",
-  "Bills",
-  "Misc",
-];
-
-const formatCategoryName = (category: string) =>
-  category.charAt(0).toUpperCase() + category.slice(1);
 
 const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   transaction,
@@ -49,8 +23,8 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   );
   const [amount, setAmount] = useState(transaction.amount.toFixed(2));
   const [description, setDescription] = useState(transaction.description ?? "");
-  const [category, setCategory] = useState(
-    formatCategoryName(transaction.category)
+  const [category, setCategory] = useState<string>(
+    normalizeCategory(transaction.category) ?? CATEGORIES[0]
   );
   const [accountId, setAccountId] = useState(transaction.account_id);
   const [loading, setLoading] = useState(false);
@@ -60,7 +34,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
     setTransactionDate(transaction.date.slice(0, 10));
     setAmount(transaction.amount.toFixed(2));
     setDescription(transaction.description ?? "");
-    setCategory(formatCategoryName(transaction.category));
+    setCategory(normalizeCategory(transaction.category) ?? CATEGORIES[0]);
     setAccountId(transaction.account_id);
   }, [transaction]);
 
@@ -71,7 +45,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   }, [accounts, accountId]);
 
   const selectedAccount = accounts.find((account) => account.id === accountId);
-  const isCreditAccount = selectedAccount?.type?.toLowerCase().includes("credit");
+  const isCreditAccount = isCreditAccountType(selectedAccount?.type);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -82,7 +56,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
       return;
     }
 
-    if (isCreditAccount && category.toLowerCase() === "income") {
+    if (isCreditAccount && category === INCOME) {
       setError("Credit accounts cannot receive Income transactions.");
       return;
     }
@@ -105,8 +79,9 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
           id: transaction.id,
           date: transactionDate,
           amount: parsedAmount,
-          description: description.trim() || null,
-          category: category.toLowerCase(),
+          description: description.trim() || undefined,
+          // Already the enum's lowercase form; see lib/categories.ts.
+          category,
           account_id: accountId,
         }),
       });
@@ -116,11 +91,9 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
         throw new Error(data?.error || "Failed to update transaction");
       }
 
-      const updatedTransaction = await res.json();
-      onUpdate({
-        ...updatedTransaction,
-        amount: Number(updatedTransaction.amount),
-      });
+      // The route serializes amount already, and returns the affected account
+      // rows alongside the transaction.
+      onUpdate(await res.json());
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update transaction");
@@ -209,9 +182,10 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               required
             >
-              {categories.map((option) => (
-                <option key={option} value={option} disabled={isCreditAccount && option === "Income"}>
-                  {option}
+              {/* Value is the enum's lowercase form; the label stays Title Case. */}
+              {CATEGORIES.map((option) => (
+                <option key={option} value={option} disabled={isCreditAccount && option === INCOME}>
+                  {displayCategory(option)}
                 </option>
               ))}
             </select>

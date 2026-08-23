@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
+import { isCreditAccount as isCreditAccountType } from "@/lib/accountTypes";
+import type { Account } from "@/types/api";
 
 interface EditAccountModalProps {
   id: string;
@@ -9,8 +11,8 @@ interface EditAccountModalProps {
   balance: number;
   max: number;
   onClose: () => void;
-  onUpdate: (account: { id: string; name: string; type: string; balance: number; max?: number }) => void;
-  onDelete: (id: string) => void;
+  onUpdate: (account: Account) => void;
+  onDelete?: (id: string) => void;
 }
 
 const EditAccountModal: React.FC<EditAccountModalProps> = ({
@@ -29,9 +31,8 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
   const [accountMax, setAccountMax] = useState(max.toString());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingArchive, setConfirmingArchive] = useState(false);
 
-  const isCreditAccountType = (type?: string) =>
-    type?.toLowerCase().includes('credit');
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -85,7 +86,9 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
     }
   };
 
-  const handleDelete = async () => {
+  // Archives rather than deletes: the account's transactions stay in history.
+  // The API keeps the DELETE verb, so the request shape is unchanged.
+  const handleArchive = async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/accounts", {
@@ -98,15 +101,16 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data?.error || "Failed to delete account");
+        throw new Error(data?.error || "Failed to archive account");
       }
 
-      onDelete(id);
+      onDelete?.(id);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete account");
+      setError(err instanceof Error ? err.message : "Failed to archive account");
     } finally {
       setLoading(false);
+      setConfirmingArchive(false);
     }
   };
 
@@ -194,14 +198,43 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
 
           {error && <p className="text-sm text-red-600">{error}</p>}
 
+          {confirmingArchive && (
+            <div className="mb-3 rounded-lg border border-red-200 bg-red-50 p-3">
+              <p className="text-sm text-red-700">
+                Archive this account? It will be hidden everywhere, but its
+                transactions stay in your history and still count toward monthly totals.
+              </p>
+              <div className="mt-3 flex gap-3">
+                <button
+                  type="button"
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={handleArchive}
+                  disabled={loading}
+                >
+                  {loading ? "Archiving..." : "Archive account"}
+                </button>
+                <button
+                  type="button"
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  onClick={() => setConfirmingArchive(false)}
+                  disabled={loading}
+                >
+                  Keep account
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-between gap-3">
             <button
               type="button"
+              title="Archive account"
+              aria-label="Archive account"
               className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={handleDelete}
-              disabled={loading}
+              onClick={() => setConfirmingArchive(true)}
+              disabled={loading || confirmingArchive}
             >
-              <img src="/delete.svg" alt="Delete" className="h-4 w-4" />
+              <img src="/delete.svg" alt="Archive" className="h-4 w-4" />
             </button>
             <div className="flex gap-3">
               <button

@@ -2,6 +2,17 @@
 
 This directory contains automated scripts for the finance tracking application.
 
+> **The scheduler is `worker.mjs`, run by the `worker` service in
+> `docker-compose.yml`.** You do not need cron, Task Scheduler, or PM2 — the
+> sections below describing them are stale and are being rewritten.
+>
+> **Do not run these under PM2.** PM2 restarts a process when it exits, and
+> these are one-shot scripts, so `pm2 start npm -- run process-monthly-snapshot`
+> produces an endless loop of monthly snapshots.
+>
+> Both scripts are safe to run by hand at any time: a recurring payment already
+> applied this month is skipped, and the snapshot job only upserts.
+
 ## Monthly Balance Snapshot Script
 
 This script should be run at the start of each new month to create balance snapshots and update budget tracking.
@@ -103,7 +114,7 @@ To test the script manually:
 npm run process-recurring
 ```
 
-The script file is located at `scripts/process-recurring-payments.mjs`
+The script file is located at `scripts/process-recurring-payments.ts`
 
 ## Important Notes
 

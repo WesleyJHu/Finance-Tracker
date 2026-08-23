@@ -7,8 +7,10 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "process-recurring": "node scripts/process-recurring-payments.mjs",
-    "process-monthly-snapshot": "node scripts/process-monthly-balance-snapshot.mjs"
+    "typecheck": "tsc --noEmit",
+    "worker": "node worker.mjs",
+    "process-recurring": "tsx scripts/process-recurring-payments.ts",
+    "process-monthly-snapshot": "tsx scripts/process-monthly-balance-snapshot.ts"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",

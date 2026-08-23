@@ -1,0 +1,61 @@
+# Finance-Tracker — deployment topology
+#
+# Secrets live in .env (see .env.example), never in this file.
+#
+#     cp .env.example .env      # fill in POSTGRES_PASSWORD
+#     docker compose up -d --build
+#
+# First run only, to create the schema:
+#     docker compose exec -T postgres psql -U finance -d finance < db/schema.sql
+#     docker compose exec -T postgres psql -U finance -d finance < db/seed.sql
+#
+# The `worker` service is what runs the cron jobs. Before this file existed
+# nothing started worker.mjs, so the recurring-payment and monthly-snapshot
+# jobs were almost certainly never running.
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-finance}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-finance}
+      TZ: America/New_York
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-finance} -d ${POSTGRES_DB:-finance}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      TZ: America/New_York
+      NODE_ENV: production
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # Same image, different entrypoint. Runs node-cron in the foreground and
+  # shells out to the two scripts on schedule.
+  worker:
+    build: .
+    restart: unless-stopped
+    command: ["npm", "run", "worker"]
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      TZ: America/New_York
+      NODE_ENV: production
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:

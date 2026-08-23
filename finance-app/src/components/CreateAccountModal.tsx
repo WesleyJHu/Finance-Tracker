@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
+import { isCreditAccount as isCreditAccountType } from "@/lib/accountTypes";
+import type { Account } from "@/types/api";
 
 interface CreateAccountModalProps {
   onClose: () => void;
-  onCreate: (account: { id: string; name: string; type: string; balance: number; max: number }) => void;
+  onCreate: (account: Account) => void;
 }
 
 const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
@@ -17,9 +19,6 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [accountMax, setAccountMax] = useState("6500");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  const isCreditAccountType = (type?: string) =>
-    type?.toLowerCase().includes('credit');
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();

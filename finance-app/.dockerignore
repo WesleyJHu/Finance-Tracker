@@ -5,3 +5,9 @@ Dockerfile
 docker-compose.yml
 npm-debug.log
 
+# Secrets must never be baked into an image layer: the Dockerfile does
+# `COPY . .`, so anything matched here would be readable by anyone with the
+# image. DATABASE_URL is passed as an environment variable instead.
+.env
+.env.*
+!.env.example

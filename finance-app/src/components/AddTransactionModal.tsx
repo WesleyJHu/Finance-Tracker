@@ -1,46 +1,31 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
-
-interface AccountOption {
-  id: string;
-  name: string;
-  type?: string;
-}
+import React, { useEffect, useMemo, useState } from "react";
+import { isCreditAccount as isCreditAccountType } from "@/lib/accountTypes";
+import { CATEGORIES, INCOME, displayCategory } from "@/lib/categories";
+import { todayInAppTz, toDateString } from "@/lib/dates";
+import type { AccountOption, Transaction, WithAccounts } from "@/types/api";
 
 interface AddTransactionModalProps {
   accounts: AccountOption[];
   onClose: () => void;
-  onCreate: (transaction: {
-    id: string;
-    date: string;
-    amount: number;
-    description?: string;
-    category: string;
-    account_id: string;
-  }) => void;
+  onCreate: (transaction: WithAccounts<Transaction>) => void;
 }
-
-const categories = [
-  "Income",
-  "Grocery",
-  "Food",
-  "Tech",
-  "Transportation",
-  "Entertainment",
-  "Bills",
-  "Misc",
-];
 
 const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   accounts,
   onClose,
   onCreate,
 }) => {
-  const [transactionDate, setTransactionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [transactionDate, setTransactionDate] = useState(() => {
+    // The app's timezone, not the browser's: toISOString() is UTC, so after
+    // 20:00 ET this defaulted to tomorrow's date.
+    const today = todayInAppTz();
+    return toDateString(today.year, today.month, today.day);
+  });
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
-  const [category, setCategory] = useState(categories[0]);
+  const [category, setCategory] = useState<string>(CATEGORIES[0]);
   const [accountId, setAccountId] = useState(accounts[0]?.id ?? "");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,16 +37,17 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   }, [accounts, accountId]);
 
   const selectedAccount = accounts.find((account) => account.id === accountId);
-  const isCreditAccount = selectedAccount?.type?.toLowerCase().includes("credit");
-  const availableCategories = isCreditAccount
-    ? categories.filter((option) => option !== "Income")
-    : categories;
+  const isCreditAccount = isCreditAccountType(selectedAccount?.type);
+  const availableCategories = useMemo(
+    () => (isCreditAccount ? CATEGORIES.filter((option) => option !== INCOME) : CATEGORIES),
+    [isCreditAccount]
+  );
 
   useEffect(() => {
-    if (isCreditAccount && category === "Income") {
+    if (isCreditAccount && category === INCOME) {
       setCategory(availableCategories[0]);
     }
-  }, [isCreditAccount]);
+  }, [isCreditAccount, category, availableCategories]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -72,7 +58,7 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       return;
     }
 
-    if (isCreditAccount && category.toLowerCase() === "income") {
+    if (isCreditAccount && category === INCOME) {
       setError("Credit accounts cannot receive Income transactions.");
       return;
     }
@@ -88,11 +74,6 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
       return;
     }
 
-    if (!accountId) {
-      setError("Please select an account before adding a transaction.");
-      return;
-    }
-
     setLoading(true);
 
     try {
@@ -104,8 +85,9 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
         body: JSON.stringify({
           date: transactionDate,
           amount: parsedAmount,
-          description: description.trim() || null,
-          category: category.toLowerCase(),
+          description: description.trim() || undefined,
+          // Already the enum's lowercase form; see lib/categories.ts.
+          category,
           account_id: accountId,
         }),
       });
@@ -205,9 +187,10 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
               className="w-full rounded-lg border border-gray-300 bg-white px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
               required
             >
+              {/* Value is the enum's lowercase form; the label stays Title Case. */}
               {availableCategories.map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {displayCategory(option)}
                 </option>
               ))}
             </select>

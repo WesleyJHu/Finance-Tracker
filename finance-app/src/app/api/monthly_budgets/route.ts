@@ -1,78 +1,58 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db';
+import { NextRequest, NextResponse } from "next/server"
+import { pool, HttpError } from "@/lib/db"
+import { handleRouteError, requireNumber, serializeMonthlyBudget } from "@/lib/api"
+import type { MonthlyBudgetUpdateBody } from "@/types/api"
 
 export const runtime = "nodejs"
 
-type MonthlyBudgetBody = {
-    month: number
-    base_budget: number
+function assertValidMonth(month: number) {
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+        throw new HttpError(400, "Invalid month")
+    }
 }
 
-//Gets monthly budget for a specific month or all if no month specified
+// Gets the budget for one month, or all 12 rows if no month is given.
+//
+// There is deliberately no `year`: these are 12 reusable rows shared across
+// every year. See the header of db/schema.sql.
 export async function GET(req: NextRequest) {
     try {
-        const { searchParams } = new URL(req.url);
+        const monthParam = new URL(req.url).searchParams.get("month")
 
-        const monthParam = searchParams.get("month")
-
-        let query = `
-            SELECT *
-            FROM "monthly_budgets"
-        `
-
-        const values: any[] = []
+        const values: unknown[] = []
+        let query = `SELECT * FROM "monthly_budgets"`
 
         if (monthParam) {
             const month = Number(monthParam)
-
-            if (isNaN(month) || month < 1 || month > 12) {
-                return NextResponse.json(
-                    { error: "Invalid month" },
-                    { status: 400 }
-                )
-            }
-
+            assertValidMonth(month)
             query += ` WHERE month = $1`
             values.push(month)
         }
 
         const result = await pool.query(query, values)
-
-        return NextResponse.json(result.rows)
-    } catch (error: any) {
-        console.error("Error fetching monthly budget:", error)
-        console.error(error)
-        console.error(error.message)
-        console.error(error.detail)
-
-        return NextResponse.json(
-            { error: "An error occurred while fetching the monthly budget" },
-            { status: 500 }
-        )
+        return NextResponse.json(result.rows.map(serializeMonthlyBudget))
+    } catch (error) {
+        return handleRouteError(error, "GET /monthly_budgets")
     }
 }
 
-
-// Updates budget for a specific month
-export async function PATCH(req: NextRequest)  {
+// Updates the budget for a specific month
+export async function PATCH(req: NextRequest) {
     try {
-        const body: MonthlyBudgetBody = await req.json()
-
+        const body: MonthlyBudgetUpdateBody = await req.json()
         const { month, base_budget } = body
 
-        if (!month || !base_budget) {
-            return NextResponse.json(
-                { error: "Month and base budget are required" },
-                { status: 400 }
-            )
+        // Explicit presence checks, not falsy ones: `!base_budget` rejected a
+        // legitimate budget of $0, permanently and silently.
+        if (month === undefined || month === null) {
+            throw new HttpError(400, "Month is required")
+        }
+        if (base_budget === undefined || base_budget === null) {
+            throw new HttpError(400, "Base budget is required")
         }
 
-        if (isNaN(month) || month < 1 || month > 12) {
-            return NextResponse.json(
-                { error: "Invalid month" },
-                { status: 400 }
-            )
-        }
+        assertValidMonth(Number(month))
+        const parsedBudget = requireNumber(base_budget, "base budget")
 
         const result = await pool.query(
             `
@@ -80,28 +60,16 @@ export async function PATCH(req: NextRequest)  {
             SET base_budget = $1
             WHERE month = $2
             RETURNING *
-        `,
-            [base_budget, month]
+            `,
+            [parsedBudget, Number(month)]
         )
 
         if (result.rowCount === 0) {
-            return NextResponse.json(
-                { error: "Monthly budget not found for the specified month" },
-                { status: 404 }
-            )
+            throw new HttpError(404, "Budget not found for that month")
         }
 
-        return NextResponse.json(result.rows[0])
-
-    } catch (error: any) {
-        console.error("Error updating monthly budget:", error)
-        console.error(error)
-        console.error(error.message)
-        console.error(error.detail)
-
-        return NextResponse.json(
-            { error: "An error occurred while updating the monthly budget" },
-            { status: 500 }
-        )
+        return NextResponse.json(serializeMonthlyBudget(result.rows[0]))
+    } catch (error) {
+        return handleRouteError(error, "PATCH /monthly_budgets")
     }
 }

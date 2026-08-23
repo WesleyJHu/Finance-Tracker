@@ -1,211 +1,149 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { pool } from '@/lib/db';
+import { NextRequest, NextResponse } from "next/server"
+import { pool, HttpError } from "@/lib/db"
+import {
+    buildUpdate,
+    handleRouteError,
+    readDeleteId,
+    requireNumber,
+    serializeRecurringPayment,
+} from "@/lib/api"
+import type {
+    RecurringPaymentCreateBody,
+    RecurringPaymentUpdateBody,
+} from "@/types/api"
 
 export const runtime = "nodejs"
 
-type RecurringPaymentBody = {
-    amount: number
-    day_of_month: number
-    description?: string
-    account_id: string
-    category: string
+const UPDATABLE_COLUMNS = ["amount", "day_of_month", "description", "account_id", "category"] as const
+
+function assertValidAmount(amount: number) {
+    if (amount <= 0) throw new HttpError(400, "Invalid amount")
 }
 
-//Gets all recurring payments
-export async function GET(req: NextRequest) {
-    try {
-        const result = await pool.query(`
-            SELECT *
-            FROM "recurring_payments"
-            ORDER BY day_of_month
-        `)
+function assertValidDayOfMonth(day: number) {
+    // The DB CHECK enforces 1-31 too. Days beyond a month's length are clamped
+    // at run time by the recurring-payments job, so 31 still fires in February.
+    if (!Number.isInteger(day) || day < 1 || day > 31) {
+        throw new HttpError(400, "Invalid day of month")
+    }
+}
 
-        return NextResponse.json(result.rows)
-    } catch (error: any) {
-        console.error("Error fetching recurring payments:", error)
-        return NextResponse.json(
-            { error: "An error occurred while fetching recurring payments" },
-            { status: 500 }
-        )
+// Gets all recurring payments
+export async function GET() {
+    try {
+        const result = await pool.query(`SELECT * FROM "recurring_payments" ORDER BY id`)
+        return NextResponse.json(result.rows.map(serializeRecurringPayment))
+    } catch (error) {
+        return handleRouteError(error, "GET /recurring_payments")
     }
 }
 
 // Creates a new recurring payment
 export async function POST(req: NextRequest) {
     try {
-        const body: RecurringPaymentBody = await req.json()
-
+        const body: RecurringPaymentCreateBody = await req.json()
         const { amount, day_of_month, description, account_id, category } = body
 
-        if (!amount || !day_of_month || !account_id || !category) {
-            return NextResponse.json(
-                { error: "Amount, day of month, account_id, and category are required" },
-                { status: 400 }
-            )
+        // Explicit presence checks rather than falsy ones, consistent with
+        // monthly_budgets: a falsy check rejects legitimate zero values.
+        if (amount === undefined || day_of_month === undefined || !account_id || !category) {
+            throw new HttpError(400, "Amount, day of month, account_id, and category are required")
         }
 
-        if (isNaN(amount) || amount <= 0) {
-            return NextResponse.json(
-                { error: "Invalid amount" },
-                { status: 400 }
-            )
-        }
+        const parsedAmount = requireNumber(amount, "amount")
+        assertValidAmount(parsedAmount)
 
-        if (isNaN(day_of_month) || day_of_month < 1 || day_of_month > 31) {
-            return NextResponse.json(
-                { error: "Invalid day of month" },
-                { status: 400 }
-            )
-        }
+        const parsedDay = requireNumber(day_of_month, "day of month")
+        assertValidDayOfMonth(parsedDay)
 
         const result = await pool.query(
             `
             INSERT INTO "recurring_payments" (amount, day_of_month, description, account_id, category)
             VALUES ($1, $2, $3, $4, $5)
             RETURNING *
-        `,
-            [amount, day_of_month, description || null, account_id, category]
+            `,
+            [parsedAmount, parsedDay, description || null, account_id, category]
         )
 
-        return NextResponse.json(result.rows[0], { status: 201 })
-
-    } catch (error: any) {
-        console.error("Error creating recurring payment:", error)
-        return NextResponse.json(
-            { error: "An error occurred while creating the recurring payment" },
-            { status: 500 }
-        )
+        return NextResponse.json(serializeRecurringPayment(result.rows[0]), { status: 201 })
+    } catch (error) {
+        return handleRouteError(error, "POST /recurring_payments")
     }
 }
 
 // Updates a recurring payment
 export async function PATCH(req: NextRequest) {
     try {
-        const body: RecurringPaymentBody & { id: string } = await req.json()
-
+        const body: RecurringPaymentUpdateBody = await req.json()
         const { id, amount, day_of_month, description, account_id, category } = body
 
         if (!id) {
-            return NextResponse.json(
-                { error: "ID is required" },
-                { status: 400 }
-            )
+            throw new HttpError(400, "ID is required")
         }
 
-        const updates: string[] = []
-        const values: any[] = []
-        let paramIndex = 1
-
+        let parsedAmount: number | undefined
         if (amount !== undefined) {
-            if (isNaN(amount) || amount <= 0) {
-                return NextResponse.json(
-                    { error: "Invalid amount" },
-                    { status: 400 }
-                )
-            }
-            updates.push(`amount = $${paramIndex++}`)
-            values.push(amount)
+            parsedAmount = requireNumber(amount, "amount")
+            assertValidAmount(parsedAmount)
         }
 
+        let parsedDay: number | undefined
         if (day_of_month !== undefined) {
-            if (isNaN(day_of_month) || day_of_month < 1 || day_of_month > 31) {
-                return NextResponse.json(
-                    { error: "Invalid day of month" },
-                    { status: 400 }
-                )
-            }
-            updates.push(`day_of_month = $${paramIndex++}`)
-            values.push(day_of_month)
+            parsedDay = requireNumber(day_of_month, "day of month")
+            assertValidDayOfMonth(parsedDay)
         }
 
-        if (description !== undefined) {
-            updates.push(`description = $${paramIndex++}`)
-            values.push(description)
+        const update = buildUpdate(
+            {
+                amount: parsedAmount,
+                day_of_month: parsedDay,
+                description,
+                account_id,
+                category,
+            },
+            UPDATABLE_COLUMNS
+        )
+
+        if (!update) {
+            throw new HttpError(400, "No fields to update")
         }
 
-        if (account_id !== undefined) {
-            updates.push(`account_id = $${paramIndex++}`)
-            values.push(account_id)
-        }
-
-        if (category !== undefined) {
-            updates.push(`category = $${paramIndex++}`)
-            values.push(category)
-        }
-
-        if (updates.length === 0) {
-            return NextResponse.json(
-                { error: "No fields to update" },
-                { status: 400 }
-            )
-        }
-
-        updates.push(`updated_at = CURRENT_TIMESTAMP`)
-
-        const query = `
+        const result = await pool.query(
+            `
             UPDATE "recurring_payments"
-            SET ${updates.join(', ')}
-            WHERE id = $${paramIndex}
+            SET ${update.clause}, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $${update.values.length + 1}
             RETURNING *
-        `
-        values.push(id)
-
-        const result = await pool.query(query, values)
+            `,
+            [...update.values, id]
+        )
 
         if (result.rowCount === 0) {
-            return NextResponse.json(
-                { error: "Recurring payment not found" },
-                { status: 404 }
-            )
+            throw new HttpError(404, "Recurring payment not found")
         }
 
-        return NextResponse.json(result.rows[0])
-
-    } catch (error: any) {
-        console.error("Error updating recurring payment:", error)
-        return NextResponse.json(
-            { error: "An error occurred while updating the recurring payment" },
-            { status: 500 }
-        )
+        return NextResponse.json(serializeRecurringPayment(result.rows[0]))
+    } catch (error) {
+        return handleRouteError(error, "PATCH /recurring_payments")
     }
 }
 
 // Deletes a recurring payment
 export async function DELETE(req: NextRequest) {
     try {
-        const { searchParams } = new URL(req.url);
-        const id = searchParams.get("id")
-
-        if (!id) {
-            return NextResponse.json(
-                { error: "ID is required" },
-                { status: 400 }
-            )
-        }
+        const id = await readDeleteId(req)
 
         const result = await pool.query(
-            `
-            DELETE FROM "recurring_payments"
-            WHERE id = $1
-            RETURNING *
-        `,
+            `DELETE FROM "recurring_payments" WHERE id = $1 RETURNING *`,
             [id]
         )
 
         if (result.rowCount === 0) {
-            return NextResponse.json(
-                { error: "Recurring payment not found" },
-                { status: 404 }
-            )
+            throw new HttpError(404, "Recurring payment not found")
         }
 
         return NextResponse.json({ message: "Recurring payment deleted" })
-
-    } catch (error: any) {
-        console.error("Error deleting recurring payment:", error)
-        return NextResponse.json(
-            { error: "An error occurred while deleting the recurring payment" },
-            { status: 500 }
-        )
+    } catch (error) {
+        return handleRouteError(error, "DELETE /recurring_payments")
     }
 }

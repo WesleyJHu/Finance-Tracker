@@ -1,57 +1,69 @@
 import { NextRequest, NextResponse } from "next/server"
-import { pool } from "@/lib/db"
+import type { PoolClient } from "pg"
+import { pool, withTransaction, HttpError } from "@/lib/db"
+import { isCreditAccount, isIncome, transactionDeltas } from "@/lib/accounting"
+import { monthRange } from "@/lib/dates"
+import {
+  handleRouteError,
+  parseMonthYear,
+  readDeleteId,
+  requireNumber,
+  serializeAccount,
+  serializeTransaction,
+} from "@/lib/api"
+import type { TransactionCreateBody, TransactionUpdateBody } from "@/types/api"
 
 export const runtime = "nodejs"
 
-type TransactionBody = {
-  date: string
-  amount: number
-  description?: string
-  category: string
-  account_id: string
+/**
+ * Locks an account row for the duration of the transaction and returns its
+ * type. Reading inside the transaction with FOR UPDATE means the credit-account
+ * check cannot race a concurrent edit to the account's type.
+ */
+async function lockAccount(client: PoolClient, accountId: string): Promise<string | null> {
+  const result = await client.query(
+    `SELECT type FROM accounts WHERE id = $1 FOR UPDATE`,
+    [accountId]
+  )
+  if (result.rowCount === 0) {
+    throw new HttpError(404, "Account not found")
+  }
+  return result.rows[0].type
 }
 
-//Gets all transactions from this month or for a specific account
+function assertIncomeAllowed(category: string, accountType: string | null) {
+  if (isIncome(category) && isCreditAccount(accountType)) {
+    throw new HttpError(400, "Credit accounts cannot receive Income transactions")
+  }
+}
+
+// Gets transactions for a month, for an account, or both
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
 
-    const monthParam = searchParams.get("month")
-    const yearParam = searchParams.get("year")
     const category = searchParams.get("category")
     const account = searchParams.get("account")
 
-    let query = `SELECT * FROM "transactions"`
-    const values: any[] = []
+    const values: unknown[] = []
     const conditions: string[] = []
 
     if (account) {
       conditions.push(`account_id = $${values.length + 1}`)
       values.push(account)
-    } else {
-      if (!monthParam || !yearParam) {
-        return NextResponse.json(
-          { error: "Month and year are required if no account specified" },
-          { status: 400 }
-        )
-      }
+    }
 
-      const month = Number(monthParam)
-      const year = Number(yearParam)
-
-      if (isNaN(month) || isNaN(year) || month < 1 || month > 12) {
-        return NextResponse.json(
-          { error: "Invalid month or year" },
-          { status: 400 }
-        )
-      }
-
-      // Use date range instead of EXTRACT (index friendly)
-      const startDate = new Date(year, month - 1, 1)
-      const endDate = new Date(year, month, 1)
-
+    // month/year are now honoured alongside `account` rather than ignored when
+    // one is present, so the account modal no longer has to re-filter a full
+    // history in the browser.
+    const period = parseMonthYear(searchParams)
+    if (period) {
+      // Half-open date range instead of EXTRACT() so idx_transactions_date is used.
+      const { start, end } = monthRange(period.year, period.month)
       conditions.push(`date >= $${values.length + 1} AND date < $${values.length + 2}`)
-      values.push(startDate, endDate)
+      values.push(start, end)
+    } else if (!account) {
+      throw new HttpError(400, "Month and year are required if no account specified")
     }
 
     if (category) {
@@ -59,330 +71,237 @@ export async function GET(req: NextRequest) {
       values.push(category)
     }
 
-    if (conditions.length > 0) {
-      query += ` WHERE ` + conditions.join(' AND ')
-    }
+    const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : ""
 
-    const result = await pool.query(query, values)
-    const transactions = result.rows.map((row) => ({
-      ...row,
-      amount: Number(row.amount),
-    }))
-
-    return NextResponse.json(transactions)
-
-  } catch (error: any) {
-    console.error("GET /transactions error:", error)
-    console.error(error)
-    console.error(error.message)
-    console.error(error.detail)
-
-    return NextResponse.json(
-      { error: "Internal Server Error" },
-      { status: 500 }
+    // Without ORDER BY this returned unspecified Postgres heap order, so
+    // "Latest activity" was really reverse-insertion order and editing a
+    // transaction's date did not move its row.
+    const result = await pool.query(
+      `SELECT * FROM "transactions"${where} ORDER BY date DESC, created_at DESC`,
+      values
     )
+
+    return NextResponse.json(result.rows.map(serializeTransaction))
+  } catch (error) {
+    return handleRouteError(error, "GET /transactions")
   }
 }
 
 // Posts a transaction
 export async function POST(req: NextRequest) {
   try {
-    const body: TransactionBody = await req.json()
-
+    const body: TransactionCreateBody = await req.json()
     const { date, amount, description, category, account_id } = body
 
-    if (
-      !date ||
-      amount === undefined ||
-      !category ||
-      !account_id
-    ) {
-      return NextResponse.json(
-        { error: "Missing required fields" },
-        { status: 400 }
+    if (!date || amount === undefined || !category || !account_id) {
+      throw new HttpError(400, "Missing required fields")
+    }
+
+    const parsedAmount = requireNumber(amount, "amount")
+
+    // transactions.description is NOT NULL in the schema, but this handler used
+    // to insert `description ?? null`, so every description-less POST was a
+    // guaranteed 500. Fall back to the category name.
+    const resolvedDescription = description?.trim() || category
+
+    const { transaction, account } = await withTransaction(async (client) => {
+      const accountType = await lockAccount(client, account_id)
+      assertIncomeAllowed(category, accountType)
+
+      const deltas = transactionDeltas(category, accountType, parsedAmount)
+
+      const inserted = await client.query(
+        `
+        INSERT INTO "transactions"
+        (date, amount, description, category, created_at, account_id)
+        VALUES ($1, $2, $3, $4, NOW(), $5)
+        RETURNING *
+        `,
+        [date, parsedAmount, resolvedDescription, category, account_id]
       )
-    }
 
-    const parsedAmount = Number(amount)
-
-    if (isNaN(parsedAmount)) {
-      return NextResponse.json(
-        { error: "Invalid amount" },
-        { status: 400 }
+      // COALESCE because accounts.max was historically nullable with no
+      // default, and NULL + anything is NULL — income to such an account used
+      // to silently destroy the column.
+      const accountUpdate = await client.query(
+        `UPDATE accounts
+            SET balance = balance + $1,
+                max = COALESCE(max, 0) + $2
+          WHERE id = $3
+        RETURNING *`,
+        [deltas.balance, deltas.max, account_id]
       )
-    }
 
-    const accountResult = await pool.query(
-      `SELECT type FROM accounts WHERE id = $1`,
-      [account_id]
-    )
+      return { transaction: inserted.rows[0], account: accountUpdate.rows[0] }
+    })
 
-    if (accountResult.rowCount === 0) {
-      return NextResponse.json({ error: 'Account not found' }, { status: 404 })
-    }
-
-    const accountType = accountResult.rows[0].type?.toLowerCase()
-    if (accountType?.includes('credit') && category.toLowerCase() === 'income') {
-      return NextResponse.json(
-        { error: 'Credit accounts cannot receive Income transactions' },
-        { status: 400 }
-      )
-    }
-
-    const maxDelta = !accountType?.includes('credit') && category.toLowerCase() === 'income' ? parsedAmount : 0
-    const delta = category.toLowerCase() === 'income' ? 0 : -parsedAmount
-
-    await pool.query('BEGIN')
-
-    const result = await pool.query(
-      `
-      INSERT INTO "transactions"
-      (date, amount, description, category, created_at, account_id)
-      VALUES ($1, $2, $3, $4, NOW(), $5)
-      RETURNING *
-      `,
-      [date, parsedAmount, description ?? null, category, account_id]
-    )
-
-    const accountUpdate = await pool.query(
-      `UPDATE accounts SET balance = balance + $1, max = max + $2 WHERE id = $3 RETURNING *`,
-      [delta, maxDelta, account_id]
-    )
-
-    if (accountUpdate.rowCount === 0) {
-      await pool.query('ROLLBACK')
-      return NextResponse.json({ error: 'Account not found' }, { status: 404 })
-    }
-
-    await pool.query('COMMIT')
-
-    const newTransaction = {
-      ...result.rows[0],
-      amount: Number(result.rows[0].amount),
-    }
-    console.log("POST /transactions created:", newTransaction, "accountUpdated:", accountUpdate.rows[0])
-
-    return NextResponse.json(newTransaction, { status: 201 })
-
-  } catch (error: any) {
-    await pool.query('ROLLBACK')
-    console.error("POST /transactions error:")
-    console.error(error)
-    console.error(error.message)
-    console.error(error.detail)
-
+    // `accounts` is returned so the client can stop re-deriving balances
+    // locally. Additive: existing callers that read only transaction fields
+    // are unaffected.
     return NextResponse.json(
-      { error: error.message },
-      { status: 500 }
+      { ...serializeTransaction(transaction), accounts: [serializeAccount(account)] },
+      { status: 201 }
     )
+  } catch (error) {
+    return handleRouteError(error, "POST /transactions")
   }
 }
 
 // Edits an existing transaction
 export async function PATCH(req: NextRequest) {
-    try {
-        const body = await req.json()
-        const { id, date, amount, description, category, account_id } = body
+  try {
+    const body: TransactionUpdateBody = await req.json()
+    const { id, date, amount, description, category, account_id } = body
 
-        if (!id) {
-            return NextResponse.json({ error: "Transaction ID is required" }, { status: 400 })
-        }
-
-        const existingResult = await pool.query(
-            `SELECT * FROM "transactions" WHERE id = $1`,
-            [id]
-        )
-
-        if (existingResult.rowCount === 0) {
-            return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
-        }
-
-        const existingTransaction = existingResult.rows[0]
-        const existingAmount = Number(existingTransaction.amount)
-        const existingCategory = existingTransaction.category
-        const existingAccountId = existingTransaction.account_id
-
-        const newAmount = amount !== undefined ? Number(amount) : existingAmount
-        if (amount !== undefined && isNaN(newAmount)) {
-            return NextResponse.json({ error: "Invalid amount" }, { status: 400 })
-        }
-
-        const newCategory = category ?? existingCategory
-        const newAccountId = account_id ?? existingAccountId
-
-        const existingAccountTypeResult = await pool.query(
-          `SELECT type FROM accounts WHERE id = $1`,
-          [existingAccountId]
-        )
-
-        if (existingAccountTypeResult.rowCount === 0) {
-          await pool.query('ROLLBACK')
-          return NextResponse.json({ error: 'Account not found' }, { status: 404 })
-        }
-
-        const existingAccountType = existingAccountTypeResult.rows[0].type?.toLowerCase()
-
-        const accountResult = await pool.query(
-          `SELECT type FROM accounts WHERE id = $1`,
-          [newAccountId]
-        )
-
-        if (accountResult.rowCount === 0) {
-          await pool.query('ROLLBACK')
-          return NextResponse.json({ error: 'Account not found' }, { status: 404 })
-        }
-
-        const accountType = accountResult.rows[0].type?.toLowerCase()
-        if (accountType?.includes('credit') && newCategory.toLowerCase() === 'income') {
-          await pool.query('ROLLBACK')
-          return NextResponse.json(
-            { error: 'Credit accounts cannot receive Income transactions' },
-            { status: 400 }
-          )
-        }
-
-        const oldDelta = existingCategory.toLowerCase() === 'income' ? 0 : -existingAmount
-        const newDelta = newCategory.toLowerCase() === 'income' ? 0 : -newAmount
-        const oldMaxDelta = existingCategory.toLowerCase() === 'income' && !existingAccountType?.includes('credit') ? existingAmount : 0
-        const newMaxDelta = newCategory.toLowerCase() === 'income' && !accountType?.includes('credit') ? newAmount : 0
-
-        await pool.query('BEGIN')
-
-        const updateResult = await pool.query(
-            `
-            UPDATE "transactions"
-            SET
-                date = COALESCE($1, date),
-                amount = COALESCE($2, amount),
-                description = COALESCE($3, description),
-                category = COALESCE($4, category),
-                account_id = COALESCE($5, account_id)
-            WHERE id = $6
-            RETURNING *
-            `,
-            [
-                date ?? null,
-                amount !== undefined ? newAmount : null,
-                description ?? null,
-                category ?? null,
-                account_id ?? null,
-                id
-            ]
-        )
-
-        if (updateResult.rowCount === 0) {
-            await pool.query('ROLLBACK')
-            return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
-        }
-
-        if (existingAccountId === newAccountId) {
-            const balanceDelta = newDelta - oldDelta
-            const maxDelta = newMaxDelta - oldMaxDelta
-            await pool.query(
-                `UPDATE accounts SET balance = balance + $1, max = max + $2 WHERE id = $3 RETURNING *`,
-                [balanceDelta, maxDelta, newAccountId]
-            )
-        } else {
-            await pool.query(
-                `UPDATE accounts SET balance = balance - $1, max = max - $2 WHERE id = $3 RETURNING *`,
-                [oldDelta, oldMaxDelta, existingAccountId]
-            )
-            await pool.query(
-                `UPDATE accounts SET balance = balance + $1, max = max + $2 WHERE id = $3 RETURNING *`,
-                [newDelta, newMaxDelta, newAccountId]
-            )
-        }
-
-        await pool.query('COMMIT')
-
-        const updatedTransaction = {
-            ...updateResult.rows[0],
-            amount: Number(updateResult.rows[0].amount),
-        }
-
-        console.log("PATCH /transactions updated:", updatedTransaction)
-
-        return NextResponse.json(updatedTransaction)
-    } catch (error: any) {
-        await pool.query('ROLLBACK')
-        console.error("PATCH /transactions error:", error)
-        console.error(error)
-        console.error(error.message)
-        console.error(error.detail)
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
+    if (!id) {
+      throw new HttpError(400, "Transaction ID is required")
     }
+
+    if (amount !== undefined) requireNumber(amount, "amount")
+
+    const { transaction, accounts } = await withTransaction(async (client) => {
+      const existingResult = await client.query(
+        `SELECT * FROM "transactions" WHERE id = $1 FOR UPDATE`,
+        [id]
+      )
+      if (existingResult.rowCount === 0) {
+        throw new HttpError(404, "Transaction not found")
+      }
+
+      const existing = existingResult.rows[0]
+      const existingAmount = Number(existing.amount)
+      const existingAccountId = existing.account_id
+
+      const newAmount = amount !== undefined ? Number(amount) : existingAmount
+      const newCategory = category ?? existing.category
+      const newAccountId = account_id ?? existingAccountId
+
+      // Lock both accounts in a stable order so two concurrent edits moving
+      // transactions between the same pair of accounts cannot deadlock.
+      const accountIds = [...new Set<string>([existingAccountId, newAccountId])].sort()
+      const accountTypes = new Map<string, string | null>()
+      for (const accountId of accountIds) {
+        accountTypes.set(accountId, await lockAccount(client, accountId))
+      }
+
+      const existingAccountType = accountTypes.get(existingAccountId) ?? null
+      const newAccountType = accountTypes.get(newAccountId) ?? null
+
+      assertIncomeAllowed(newCategory, newAccountType)
+
+      const oldDeltas = transactionDeltas(existing.category, existingAccountType, existingAmount)
+      const newDeltas = transactionDeltas(newCategory, newAccountType, newAmount)
+
+      const updateResult = await client.query(
+        `
+        UPDATE "transactions"
+        SET
+            date = COALESCE($1, date),
+            amount = COALESCE($2, amount),
+            description = COALESCE($3, description),
+            category = COALESCE($4, category),
+            account_id = COALESCE($5, account_id)
+        WHERE id = $6
+        RETURNING *
+        `,
+        [
+          date ?? null,
+          amount !== undefined ? newAmount : null,
+          description?.trim() || null,
+          category ?? null,
+          account_id ?? null,
+          id,
+        ]
+      )
+
+      const updatedAccounts = []
+
+      if (existingAccountId === newAccountId) {
+        const result = await client.query(
+          `UPDATE accounts
+              SET balance = balance + $1,
+                  max = COALESCE(max, 0) + $2
+            WHERE id = $3
+          RETURNING *`,
+          [newDeltas.balance - oldDeltas.balance, newDeltas.max - oldDeltas.max, newAccountId]
+        )
+        updatedAccounts.push(result.rows[0])
+      } else {
+        // Back the transaction out of the old account, then apply it to the new one.
+        const reverted = await client.query(
+          `UPDATE accounts
+              SET balance = balance - $1,
+                  max = COALESCE(max, 0) - $2
+            WHERE id = $3
+          RETURNING *`,
+          [oldDeltas.balance, oldDeltas.max, existingAccountId]
+        )
+        const applied = await client.query(
+          `UPDATE accounts
+              SET balance = balance + $1,
+                  max = COALESCE(max, 0) + $2
+            WHERE id = $3
+          RETURNING *`,
+          [newDeltas.balance, newDeltas.max, newAccountId]
+        )
+        updatedAccounts.push(reverted.rows[0], applied.rows[0])
+      }
+
+      return { transaction: updateResult.rows[0], accounts: updatedAccounts }
+    })
+
+    return NextResponse.json({
+      ...serializeTransaction(transaction),
+      accounts: accounts.map(serializeAccount),
+    })
+  } catch (error) {
+    return handleRouteError(error, "PATCH /transactions")
+  }
 }
 
 // Deletes a transaction
 export async function DELETE(req: NextRequest) {
-    try {
-        const body = await req.json()
-        const { id } = body
+  try {
+    // Accepts ?id= or a JSON body, so the three DELETE routes now share one
+    // convention without breaking existing callers.
+    const id = await readDeleteId(req)
 
-        if (!id) {
-            return NextResponse.json({ error: "Transaction ID is required" }, { status: 400 })
-        }
+    const account = await withTransaction(async (client) => {
+      const existingResult = await client.query(
+        `SELECT * FROM "transactions" WHERE id = $1 FOR UPDATE`,
+        [id]
+      )
+      if (existingResult.rowCount === 0) {
+        throw new HttpError(404, "Transaction not found")
+      }
 
-        const existingResult = await pool.query(
-            `SELECT * FROM "transactions" WHERE id = $1`,
-            [id]
-        )
+      const transaction = existingResult.rows[0]
+      const accountType = await lockAccount(client, transaction.account_id)
+      const deltas = transactionDeltas(
+        transaction.category,
+        accountType,
+        Number(transaction.amount)
+      )
 
-        if (existingResult.rowCount === 0) {
-            return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
-        }
+      await client.query(`DELETE FROM "transactions" WHERE id = $1`, [id])
 
-        const transaction = existingResult.rows[0]
-        const transactionAmount = Number(transaction.amount)
-        const transactionDelta = transaction.category.toLowerCase() === 'income' ? 0 : -transactionAmount
+      const accountUpdate = await client.query(
+        `UPDATE accounts
+            SET balance = balance - $1,
+                max = COALESCE(max, 0) - $2
+          WHERE id = $3
+        RETURNING *`,
+        [deltas.balance, deltas.max, transaction.account_id]
+      )
 
-        const accountResult = await pool.query(
-          `SELECT type FROM accounts WHERE id = $1`,
-          [transaction.account_id]
-        )
+      return accountUpdate.rows[0]
+    })
 
-        if (accountResult.rowCount === 0) {
-          return NextResponse.json({ error: 'Account not found' }, { status: 404 })
-        }
-
-        const accountType = accountResult.rows[0].type?.toLowerCase()
-        const maxDelta = transaction.category.toLowerCase() === 'income' && !accountType?.includes('credit')
-          ? transactionAmount
-          : 0
-
-        await pool.query('BEGIN')
-
-        const deleteResult = await pool.query(
-            `
-            DELETE FROM "transactions"
-            WHERE id = $1
-            RETURNING *
-            `,
-            [id]
-        )
-
-        if (deleteResult.rowCount === 0) {
-            await pool.query('ROLLBACK')
-            return NextResponse.json({ error: "Transaction not found" }, { status: 404 })
-        }
-
-        await pool.query(
-            `UPDATE accounts SET balance = balance - $1, max = max - $2 WHERE id = $3 RETURNING *`,
-            [transactionDelta, maxDelta, transaction.account_id]
-        )
-
-        await pool.query('COMMIT')
-
-        console.log("DELETE /transactions removed:", transaction)
-
-        return NextResponse.json({ message: "Transaction deleted successfully" })
-    } catch (error: any) {
-        await pool.query('ROLLBACK')
-        console.error("DELETE /transactions error:", error)
-        console.error(error)
-        console.error(error.message)
-        console.error(error.detail)
-        
-        return NextResponse.json({ error: "Internal Server Error" }, { status: 500 })
-    }
+    return NextResponse.json({
+      message: "Transaction deleted successfully",
+      accounts: [serializeAccount(account)],
+    })
+  } catch (error) {
+    return handleRouteError(error, "DELETE /transactions")
+  }
 }

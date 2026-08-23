@@ -6,39 +6,11 @@ import CreateAccountModal from '../components/CreateAccountModal';
 import AddTransactionModal from '../components/AddTransactionModal';
 import EditTransactionModal from '../components/EditTransactionModal';
 import SettingsModal from '../components/SettingsModal';
-
-interface Account {
-  id: string;
-  name: string;
-  type: string;
-  balance: number;
-  max: number;
-}
-
-interface Transaction {
-  id: string;
-  date: string;
-  amount: number;
-  description?: string;
-  category: string;
-  account_id: string;
-}
-
-interface MonthlyBudget {
-  id: string;
-  month: number;
-  year: number;
-  base_budget: number;
-  spent: number;
-}
-
-interface BalanceSnapshot {
-  id: string;
-  starting_balance: number;
-  ending_balance: number | null;
-  month: number;
-  year: number;
-}
+import { formatCurrency, formatDate, formatLongDate } from '@/lib/format';
+import { categoryIcon } from '@/lib/categories';
+import { isIncome } from '@/lib/accounting';
+import { todayInAppTz } from '@/lib/dates';
+import type { Account, BalanceSnapshot, MonthlyBudget, Transaction, WithAccounts } from '@/types/api';
 
 export default function Dashboard() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -54,7 +26,7 @@ export default function Dashboard() {
   const [month, setMonth] = useState(1);
   const [year, setYear] = useState(2024);
 
-  const handleAccountUpdate = (updatedAccount: { id: string; name: string; type: string; balance: number; max?: number }) => {
+  const handleAccountUpdate = (updatedAccount: Account) => {
     setAccounts(prev => prev.map(acc => acc.id === updatedAccount.id ? { ...acc, ...updatedAccount } : acc));
   };
 
@@ -64,85 +36,51 @@ export default function Dashboard() {
 
   const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
 
-  const getTransactionDelta = (transaction: Transaction) =>
-    transaction.category.toLowerCase() === 'income' ? 0 : -transaction.amount;
-
-  const isCreditAccountType = (type?: string) =>
-    type?.toLowerCase().includes('credit');
-
-  const getTransactionMaxDelta = (transaction: Transaction) =>
-    transaction.category.toLowerCase() === 'income' ? transaction.amount : 0;
-
-  const applyTransactionAccountChanges = (
-    oldTransaction: Transaction | null,
-    newTransaction: Transaction | null
-  ) => {
-    const oldDelta = oldTransaction ? getTransactionDelta(oldTransaction) : 0;
-    const oldMaxDelta = oldTransaction ? getTransactionMaxDelta(oldTransaction) : 0;
-    const newDelta = newTransaction ? getTransactionDelta(newTransaction) : 0;
-    const newMaxDelta = newTransaction ? getTransactionMaxDelta(newTransaction) : 0;
-
+  /**
+   * Merges the account rows the API returns after a mutation.
+   *
+   * This replaces a browser-side mirror of the server's balance formula
+   * (getTransactionDelta / getTransactionMaxDelta / a duplicated credit-account
+   * guard). The two implementations could drift, and displayed balances would
+   * then silently disagree with the database until a reload. The mutating
+   * transaction routes now return the affected accounts, so there is one
+   * formula, on the server.
+   */
+  const applyServerAccounts = (updated: Account[] | undefined) => {
+    if (!updated?.length) return;
+    const byId = new Map(updated.map((account) => [account.id, account]));
     setAccounts((current) =>
-      current.map((account) => {
-        let updatedBalance = account.balance;
-        let updatedMax = account.max;
-
-        if (oldTransaction && account.id === oldTransaction.account_id) {
-          updatedBalance -= oldDelta;
-          if (!isCreditAccountType(account.type)) {
-            updatedMax -= oldMaxDelta;
-          }
-        }
-
-        if (newTransaction && account.id === newTransaction.account_id) {
-          updatedBalance += newDelta;
-          if (!isCreditAccountType(account.type)) {
-            updatedMax += newMaxDelta;
-          }
-        }
-
-        return {
-          ...account,
-          balance: updatedBalance,
-          max: updatedMax,
-        };
-      })
+      current.map((account) => byId.get(account.id) ?? account)
     );
   };
 
   const handleDeleteTransaction = async (transaction: Transaction) => {
     try {
-      const res = await fetch('/api/transactions', {
+      const res = await fetch(`/api/transactions?id=${encodeURIComponent(transaction.id)}`, {
         method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id: transaction.id }),
       });
 
+      const data = await res.json();
       if (!res.ok) {
-        const data = await res.json();
         throw new Error(data?.error || 'Failed to delete transaction');
       }
 
       setTransactions((current) => current.filter((t) => t.id !== transaction.id));
-      applyTransactionAccountChanges(transaction, null);
+      applyServerAccounts(data?.accounts);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete transaction');
       console.error('Delete transaction failed:', err);
     }
   };
 
-  const handleSaveTransaction = (updatedTransaction: Transaction) => {
-    if (!editingTransaction) return;
-
+  const handleSaveTransaction = (updatedTransaction: WithAccounts<Transaction>) => {
     setTransactions((current) =>
       current.map((transaction) =>
         transaction.id === updatedTransaction.id ? updatedTransaction : transaction
       )
     );
 
-    applyTransactionAccountChanges(editingTransaction, updatedTransaction);
+    applyServerAccounts(updatedTransaction.accounts);
     setEditingTransaction(null);
   };
 
@@ -152,17 +90,7 @@ export default function Dashboard() {
         setLoading(true);
         setError(null);
 
-        const now = new Date();
-        const parts = new Intl.DateTimeFormat("en-US", {
-          timeZone: "America/New_York",
-          year: "numeric",
-          month: "2-digit",
-          day: "2-digit"
-        }).formatToParts(now);
-
-        const month = Number(parts.find(p => p.type === "month")!.value);
-        const year = Number(parts.find(p => p.type === "year")!.value);
-        const day = Number(parts.find(p => p.type === "day")!.value);
+        const { month, year, day } = todayInAppTz();
 
         setMonth(month);
         setYear(year);
@@ -170,17 +98,14 @@ export default function Dashboard() {
 
         const accountsRes = await fetch('/api/accounts');
         if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
-        const accountsData = await accountsRes.json();
-        setAccounts(accountsData.map((account: Account) => ({
-          ...account,
-          balance: Number(account.balance),
-          max: Number(account.max),
-        })));
+        // The routes serialize numerics now, so no client-side coercion.
+        const accountsData: Account[] = await accountsRes.json();
+        setAccounts(accountsData);
 
         const transRes = await fetch(`/api/transactions?month=${month}&year=${year}`);
         if (!transRes.ok) throw new Error('Failed to fetch transactions');
-        const transData = await transRes.json();
-        setTransactions(transData.map(normalizeTransaction));
+        const transData: Transaction[] = await transRes.json();
+        setTransactions(transData);
 
         const budgetRes = await fetch(`/api/monthly_budgets?month=${month}`);
         if (!budgetRes.ok) throw new Error('Failed to fetch budget');
@@ -189,17 +114,24 @@ export default function Dashboard() {
           setMonthlyBudget(budgetData[0]);
         }
 
-        const snapshotRes = await fetch(`/api/balance_snapshot?month=${month}&year=${year}`);
-        if (!snapshotRes.ok) {
-          console.error('Failed to fetch balance snapshot', {
-            status: snapshotRes.status,
-            statusText: snapshotRes.statusText,
-          });
-          throw new Error('Failed to fetch balance snapshot');
-        }
-        const snapshotData = await snapshotRes.json();
-        if (snapshotData.length > 0) {
-          setBalanceSnapshot(snapshotData[0]);
+        // Non-fatal: a missing snapshot row is expected on the 1st of a month
+        // before the cron job runs, and it must not blank a dashboard whose
+        // accounts and transactions loaded fine.
+        try {
+          const snapshotRes = await fetch(`/api/balance_snapshot?month=${month}&year=${year}`);
+          if (!snapshotRes.ok) {
+            console.error('Failed to fetch balance snapshot', {
+              status: snapshotRes.status,
+              statusText: snapshotRes.statusText,
+            });
+          } else {
+            const snapshotData = await snapshotRes.json();
+            if (snapshotData.length > 0) {
+              setBalanceSnapshot(snapshotData[0]);
+            }
+          }
+        } catch (snapshotErr) {
+          console.error('Failed to fetch balance snapshot', snapshotErr);
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'An error occurred');
@@ -212,44 +144,17 @@ export default function Dashboard() {
     fetchData();
   }, []);
 
-    const formattedDate = new Date(year, month - 1, day).toLocaleDateString('en-US', {
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-      year: 'numeric',
-    });
-
-  const formatCurrency = (num: number) =>
-    new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-    }).format(num);
-
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-
-    return date.toLocaleDateString('en-US', {
-      timeZone: 'America/New_York',
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric',
-    });
-  };
-
-  const normalizeTransaction = (transaction: any): Transaction => ({
-    ...transaction,
-    amount: Number(transaction.amount),
-  });
+  const formattedDate = formatLongDate(year, month, day);
 
   const totalExpenses = transactions
-    .filter((t) => t.category.toLowerCase() !== 'income')
+    .filter((t) => !isIncome(t.category))
     .reduce((sum, t) => sum + t.amount, 0);
   const totalIncome = transactions
-    .filter((t) => t.category.toLowerCase() === 'income')
+    .filter((t) => isIncome(t.category))
     .reduce((sum, t) => sum + t.amount, 0);
 
   const categoryTotals = transactions.reduce<Record<string, number>>((totals, transaction) => {
-    if (transaction.category.toLowerCase() === 'income') return totals;
+    if (isIncome(transaction.category)) return totals;
     const category = transaction.category || 'Uncategorized';
     totals[category] = (totals[category] || 0) + transaction.amount;
     return totals;
@@ -261,7 +166,11 @@ export default function Dashboard() {
     .map(([category, amount]) => ({ category, amount }));
 
   const maxCategoryAmount = sortedCategories.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
-  const budgetCapacity = Number(balanceSnapshot?.starting_balance ?? 0) + Number(monthlyBudget?.base_budget ?? 0);
+  // starting_balance already includes this month's base_budget — the snapshot
+  // script writes it as (previous month's ending balance + base_budget). Adding
+  // base_budget again here inflated Remaining Budget by a full month's budget.
+  // See the header of db/schema.sql.
+  const budgetCapacity = Number(balanceSnapshot?.starting_balance ?? 0);
   const spendingProgress = (budgetCapacity + totalIncome) > 0 ? Math.min(totalExpenses / (budgetCapacity + totalIncome), 1) : 0;
   const remainingBudget = budgetCapacity - totalExpenses + totalIncome;
   const accountNameById = Object.fromEntries(accounts.map((account) => [account.id, account.name]));
@@ -338,11 +247,7 @@ export default function Dashboard() {
             accounts.map((account) => (
               <Card
                 key={account.id}
-                id={account.id}
-                name={account.name}
-                type={account.type}
-                value={account.balance}
-                limit={account.max}
+                account={account}
                 onUpdate={handleAccountUpdate}
                 onDelete={handleAccountDelete}
               />
@@ -488,7 +393,7 @@ export default function Dashboard() {
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-800 rounded-l-2xl">
                     <div className="flex items-center gap-2">
                       <img
-                        src={`/${transaction.category.toLowerCase()}.svg`}
+                        src={categoryIcon(transaction.category)}
                         alt={transaction.category}
                         className="h-6 w-6"
                       />
@@ -498,8 +403,8 @@ export default function Dashboard() {
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500 uppercase">{transaction.category}</td>
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500">{accountNameById[transaction.account_id] || 'Unknown'}</td>
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-500">{formatDate(transaction.date)}</td>
-                  <td className={`bg-slate-50 px-4 py-4 text-right text-sm font-semibold ${transaction.category.toLowerCase() === 'income' ? 'text-emerald-600' : 'text-rose-600'}`}>
-                    {transaction.category.toLowerCase() === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                  <td className={`bg-slate-50 px-4 py-4 text-right text-sm font-semibold ${isIncome(transaction.category) ? 'text-emerald-600' : 'text-rose-600'}`}>
+                    {isIncome(transaction.category) ? '+' : '-'}{formatCurrency(transaction.amount)}
                   </td>
                   <td className="bg-slate-50 px-4 py-4 text-right rounded-r-2xl">
                     <div className="inline-flex items-center gap-2">
@@ -531,11 +436,8 @@ export default function Dashboard() {
           accounts={accounts}
           onClose={() => setShowTransactionModal(false)}
           onCreate={(newTransaction) => {
-            const normalizedTransaction = normalizeTransaction(newTransaction);
-            console.debug('New transaction added:', normalizedTransaction);
-
-            setTransactions((current) => [...current, normalizedTransaction]);
-            applyTransactionAccountChanges(null, normalizedTransaction);
+            setTransactions((current) => [...current, newTransaction]);
+            applyServerAccounts(newTransaction.accounts);
             setShowTransactionModal(false);
           }}
         />

@@ -1,16 +1,10 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-
-interface Transaction {
-  id: string;
-  date: string;
-  amount: number;
-  description?: string;
-  category: string;
-  account_id: string;
-  merchant?: string;
-}
+import { todayInAppTz } from "@/lib/dates";
+import { formatCurrency, formatDate } from "@/lib/format";
+import { isIncome } from "@/lib/accounting";
+import type { Transaction } from "@/types/api";
 
 interface AccountModalProps {
   accountId: string;
@@ -33,9 +27,9 @@ const AccountModal: React.FC<AccountModalProps> = ({
         setLoading(true);
         setError(null);
 
-        const now = new Date();
-        const month = now.getMonth() + 1;
-        const year = now.getFullYear();
+        // Derived in the app's timezone rather than the browser's, so a viewer
+        // outside ET sees the same month the rest of the dashboard does.
+        const { month, year } = todayInAppTz();
 
         const res = await fetch(
           `/api/transactions?account=${accountId}&month=${month}&year=${year}`
@@ -47,15 +41,11 @@ const AccountModal: React.FC<AccountModalProps> = ({
 
         const data = await res.json();
 
-        const filtered = (Array.isArray(data) ? data : []).filter((tx) => {
-          const d = new Date(tx.date);
-          return (
-            d.getMonth() + 1 === month &&
-            d.getFullYear() === year
-          );
-        });
-
-        setTransactions(filtered);
+        // No client-side re-filter: the API used to ignore month/year whenever
+        // `account` was set and return the account's whole history, so this
+        // component had to filter again in browser-local time. The API now
+        // honours both, and filtering again here would drop edge-of-month rows.
+        setTransactions(Array.isArray(data) ? data : []);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
         setTransactions([]);
@@ -67,22 +57,10 @@ const AccountModal: React.FC<AccountModalProps> = ({
     fetchTransactions();
   }, [accountId]);
 
-  const formatCurrency = (num: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(num);
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("en-US", {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  };
-
-  const isIncomeTransaction = (transaction: Transaction) =>
-    transaction.category.toLowerCase() === "income";
+  // formatDate now comes from lib/format, which pins the app timezone. This
+  // copy omitted it, so the same transaction could render one date here and a
+  // different one in the dashboard table.
+  const isIncomeTransaction = (transaction: Transaction) => isIncome(transaction.category);
 
   const displayAmount = (transaction: Transaction) => {
     const value = formatCurrency(Math.abs(transaction.amount));
@@ -139,7 +117,7 @@ const AccountModal: React.FC<AccountModalProps> = ({
                   >
                     <div className="flex-1">
                       <p className="font-semibold text-gray-800">
-                        {tx.merchant || tx.description || tx.category}
+                        {tx.description || tx.category}
                       </p>
                       <p className="text-sm text-gray-600">
                         {formatDate(tx.date)} • {tx.category}

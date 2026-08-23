@@ -1,38 +1,34 @@
 "use client";
 
-import type { CardProps } from "@/types/card";
-
 import React, { useState } from "react";
 import AccountModal from "./AccountModal";
 import EditAccountModal from "./EditAccountModal";
+import { formatCurrency } from "@/lib/format";
+import type { Account } from "@/types/api";
 
-const Card: React.FC<CardProps> = ({
-  id,
-  name,
-  type,
-  limit,
-  value,
-  onUpdate,
-  onDelete,
-}) => {
-  const [accountName, setAccountName] = useState(name);
-  const [accountType, setAccountType] = useState(type);
+// Props mirror the database columns. The old types/card.ts renamed `max` to
+// `limit` and `balance` to `value`, which gave the same two columns a third
+// set of names and made the data model harder to follow than it needed to be.
+export interface AccountCardProps {
+  account: Account;
+  onUpdate?: (account: Account) => void;
+  onDelete?: (id: string) => void;
+}
+
+const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
+  const [accountName, setAccountName] = useState(account.name ?? "");
+  const [accountType, setAccountType] = useState(account.type ?? "");
   const [isOpen, setIsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
-  const limitUsed = limit ? Math.round((Math.abs(value) / limit) * 100) : 0;
+  const { id, balance, max } = account;
+  const limitUsed = max ? Math.round((Math.abs(balance) / max) * 100) : 0;
 
-  const handleAccountUpdate = (updated: { id: string; name: string; type: string; balance: number; max?: number }) => {
-    setAccountName(updated.name);
-    setAccountType(updated.type);
+  const handleAccountUpdate = (updated: Account) => {
+    setAccountName(updated.name ?? "");
+    setAccountType(updated.type ?? "");
     onUpdate?.(updated);
   };
-
-  const formatCurrency = (num: number) =>
-    new Intl.NumberFormat("en-US", {
-      style: "currency",
-      currency: "USD",
-    }).format(num);
 
   return (
     <>
@@ -50,7 +46,7 @@ const Card: React.FC<CardProps> = ({
         </button>
         <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{accountType}</p>
         <h2 className="mt-4 text-xl font-semibold text-slate-900">{accountName}</h2>
-        <p className="mt-3 text-sm text-slate-500">{formatCurrency(Math.abs(value))} / {formatCurrency(limit)}</p>
+        <p className="mt-3 text-sm text-slate-500">{formatCurrency(Math.abs(balance))} / {formatCurrency(max)}</p>
         <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
           <div className="h-full rounded-full bg-linear-to-r from-blue-600 to-cyan-400" style={{ width: `${Math.min(limitUsed, 100)}%` }} />
         </div>
@@ -70,11 +66,11 @@ const Card: React.FC<CardProps> = ({
           id={id}
           name={accountName}
           type={accountType}
-          balance={value}
-          max={limit}
+          balance={balance}
+          max={max}
           onClose={() => setEditOpen(false)}
           onUpdate={handleAccountUpdate}
-          onDelete={(deletedId) => onDelete?.(deletedId)}
+          onDelete={onDelete}
         />
       )}
     </>
