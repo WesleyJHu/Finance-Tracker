@@ -1,7 +1,7 @@
 import path from "node:path"
 import fs from "node:fs"
 import dotenv from "dotenv"
-import { Pool, type PoolClient } from "pg"
+import { Pool, types as pgTypes, type PoolClient } from "pg"
 
 // Next loads .env.local automatically; the CLI scripts in scripts/ do not.
 // Load it here so both entry points behave identically. Real environment
@@ -22,6 +22,15 @@ if (!process.env.DATABASE_URL) {
       "or pass it as an environment variable (docker compose)."
   )
 }
+
+// A Postgres `date` has no time and no timezone, but node-postgres inflates it
+// into a JS Date at *local* midnight. Serialized to JSON that becomes an
+// instant, and rendering that instant in ET shifts the day backwards unless
+// the host timezone also happens to be ET — so `transactions.date` displayed
+// correctly only by accident of the Dockerfile pinning TZ. Hand back the raw
+// "YYYY-MM-DD" the server sent instead; `lib/format.formatDate` renders it as
+// the calendar date it is. 1082 is the OID of `date`.
+pgTypes.setTypeParser(pgTypes.builtins.DATE, (value) => value)
 
 function createPool(): Pool {
   const created = new Pool({

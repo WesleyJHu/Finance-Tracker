@@ -6,7 +6,7 @@
  */
 import { pool, withTransaction } from "@/lib/db"
 import { transactionDeltas } from "@/lib/accounting"
-import { daysInMonth, todayInAppTz, toDateString } from "@/lib/dates"
+import { isRecurringPaymentDue, todayInAppTz, toDateString } from "@/lib/dates"
 
 type RecurringPayment = {
   id: number
@@ -19,7 +19,6 @@ type RecurringPayment = {
 
 async function processRecurringPayments() {
   const today = todayInAppTz()
-  const monthLength = daysInMonth(today.year, today.month)
 
   console.log(
     `Processing recurring payments for ${today.year}-${today.month}-${today.day} (ET)`
@@ -37,10 +36,9 @@ async function processRecurringPayments() {
   let skipped = 0
 
   for (const payment of payments) {
-    // Clamp to the length of this month, so a payment set to the 31st still
+    // Clamps to the length of this month, so a payment set to the 31st still
     // fires in February rather than silently never firing.
-    const dueDay = Math.min(payment.day_of_month, monthLength)
-    if (dueDay !== today.day) continue
+    if (!isRecurringPaymentDue(payment.day_of_month, today)) continue
 
     if (!payment.account_id) {
       console.warn(`Payment ${payment.id} has no account_id, skipping`)

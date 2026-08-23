@@ -14,6 +14,7 @@
  * not add base_budget again. See the header of db/schema.sql.
  */
 import { pool, withTransaction } from "@/lib/db"
+import { monthEndingBalance, snapshotStartingBalance } from "@/lib/accounting"
 import { monthRange, previousMonth, todayInAppTz } from "@/lib/dates"
 
 async function processMonthlyBalanceSnapshot() {
@@ -64,8 +65,11 @@ async function processMonthlyBalanceSnapshot() {
       previousStartingBalance = Number(previousSnapshot.rows[0].starting_balance)
     }
 
-    const previousEndingBalance =
-      previousStartingBalance + Number(totals.rows[0].income) - Number(totals.rows[0].expenses)
+    const previousEndingBalance = monthEndingBalance(
+      previousStartingBalance,
+      Number(totals.rows[0].income),
+      Number(totals.rows[0].expenses)
+    )
 
     console.log(
       `Previous month: start ${previousStartingBalance.toFixed(2)}, ` +
@@ -97,7 +101,7 @@ async function processMonthlyBalanceSnapshot() {
     }
 
     const baseBudget = Number(budget.rows[0].base_budget)
-    const startingBalance = previousEndingBalance + baseBudget
+    const startingBalance = snapshotStartingBalance(previousEndingBalance, baseBudget)
 
     console.log(
       `Current month: carryover ${previousEndingBalance.toFixed(2)} + ` +

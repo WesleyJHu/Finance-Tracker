@@ -26,17 +26,41 @@ export function formatCurrency(value: number): string {
  * version is a deliberate bug fix: AccountModal dates shift by up to a day for
  * non-ET viewers today.
  */
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/
+
 export function formatDate(value: string | Date): string {
+  // A bare "YYYY-MM-DD" is a calendar date, not an instant. `new Date(s)`
+  // reads it as UTC midnight, which is the *previous* day in ET, so a
+  // transaction dated the 1st rendered as the last day of the prior month.
+  // Anchor it at UTC noon and format in UTC so no zone can shift it.
+  const dateOnly = typeof value === "string" ? DATE_ONLY.exec(value.trim()) : null
+  if (dateOnly) {
+    const [, year, month, day] = dateOnly
+    return CALENDAR.format(new Date(Date.UTC(Number(year), Number(month) - 1, Number(day), 12)))
+  }
+
+  // A real instant (created_at, or a Date handed in by a caller) is rendered
+  // in the app timezone, so a viewer elsewhere sees the same day the
+  // dashboard and the scripts do.
   const date = value instanceof Date ? value : new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
 
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: APP_TZ,
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  }).format(date)
+  return INSTANT.format(date)
 }
+
+const CALENDAR = new Intl.DateTimeFormat("en-US", {
+  timeZone: "UTC",
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+})
+
+const INSTANT = new Intl.DateTimeFormat("en-US", {
+  timeZone: APP_TZ,
+  month: "short",
+  day: "numeric",
+  year: "numeric",
+})
 
 /**
  * A calendar date (already resolved to the app's timezone) as

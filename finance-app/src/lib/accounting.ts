@@ -49,3 +49,34 @@ export function transactionDeltas(
   }
   return { balance: -amount, max: 0 }
 }
+
+/**
+ * A month's ending balance: what it opened with, plus income, less expenses.
+ *
+ * `starting` already contains that month's base budget (see
+ * `snapshotStartingBalance`), which is why the budget is not added again here.
+ */
+export function monthEndingBalance(
+  starting: number,
+  income: number,
+  expenses: number
+): number {
+  return starting + income - expenses
+}
+
+/**
+ * A month's starting balance, as stored in
+ * `monthly_balance_snapshot.starting_balance`.
+ *
+ * DEFINED AS the previous month's ending balance plus this month's base
+ * budget. This is the single source of that definition: the snapshot script
+ * writes it and src/app/page.tsx reads it, and page.tsx used to add
+ * `base_budget` a second time on top (P0-4), so Remaining Budget was one
+ * whole month's budget too high. See the header of db/schema.sql.
+ */
+export function snapshotStartingBalance(
+  previousEndingBalance: number,
+  baseBudget: number
+): number {
+  return previousEndingBalance + baseBudget
+}

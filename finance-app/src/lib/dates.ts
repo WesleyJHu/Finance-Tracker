@@ -67,3 +67,19 @@ export function monthRange(year: number, month: number) {
     end: toDateString(next.year, next.month, 1),
   }
 }
+
+/**
+ * Whether a recurring payment set to run on `dayOfMonth` is due on `today`.
+ *
+ * The day is clamped to the length of the month, so a payment on the 31st
+ * still fires on the 28th of February rather than silently never firing —
+ * the old `day_of_month === currentDay` test skipped five months a year for
+ * a payment on the 31st, and February for anything after the 28th (P0-7).
+ */
+export function isRecurringPaymentDue(
+  dayOfMonth: number,
+  today: { year: number; month: number; day: number }
+): boolean {
+  const dueDay = Math.min(dayOfMonth, daysInMonth(today.year, today.month))
+  return dueDay === today.day
+}
