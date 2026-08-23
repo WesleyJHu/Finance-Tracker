@@ -71,10 +71,12 @@ npm run process-recurring
 npm run process-monthly-snapshot
 ```
 
-Or inside the running stack:
+Or inside the running stack. The runtime image ships these bundled rather than
+as TypeScript, so there is no `npm run` there:
 
 ```bash
-docker compose exec worker npm run process-recurring
+docker compose exec worker node dist/scripts/process-recurring-payments.mjs
+docker compose exec worker node dist/scripts/process-monthly-balance-snapshot.mjs
 ```
 
 Both read `DATABASE_URL` from the environment, falling back to

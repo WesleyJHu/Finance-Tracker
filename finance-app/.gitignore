@@ -19,6 +19,9 @@
 
 # production
 /build
+# Bundled worker and cron scripts, emitted by build-scripts.mjs during the
+# Docker build. Never committed.
+/dist
 
 # misc
 .DS_Store

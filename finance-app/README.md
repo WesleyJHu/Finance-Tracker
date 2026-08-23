@@ -81,8 +81,31 @@ the web app, so before this compose file existed nothing ran `worker.mjs` and
 the cron jobs almost certainly never fired in production. Confirm it with:
 
 ```bash
-docker compose logs worker   # expect "Worker started..."
+docker compose logs worker   # expect "Worker started... (bundled scripts)"
+docker compose ps            # app should reach (healthy)
 ```
+
+### The image
+
+Multi-stage: `deps` runs `npm ci`, `builder` compiles the Next app and bundles
+the worker, and only the standalone server and its traced dependencies reach
+the runtime stage. 1.61 GB down to 272 MB.
+
+The runtime stage has no npm scripts, no TypeScript sources, no tsconfig and no
+`tsx`. The worker and the two cron jobs are bundled into `dist/` by
+[`build-scripts.mjs`](build-scripts.mjs), so to run a job by hand in the
+container:
+
+```bash
+docker compose exec worker node dist/scripts/process-recurring-payments.mjs
+```
+
+`node-cron` is copied in rather than bundled — it resolves a `daemon.js` off
+disk relative to `__dirname`.
+
+It runs as the unprivileged `node` user, and `HEALTHCHECK` hits `/api/health`,
+which round-trips the database, so an app that is up but cannot reach Postgres
+reports unhealthy rather than ok.
 
 ### Migrating an existing database
 

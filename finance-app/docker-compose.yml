@@ -9,6 +9,9 @@
 #     docker compose exec -T postgres psql -U finance -d finance < db/schema.sql
 #     docker compose exec -T postgres psql -U finance -d finance < db/seed.sql
 #
+# An existing database predating db/schema.sql needs
+# db/migrations/0001_integrity.sql applied first. See README.md.
+#
 # The `worker` service is what runs the cron jobs. Before this file existed
 # nothing started worker.mjs, so the recurring-payment and monthly-snapshot
 # jobs were almost certainly never running.
@@ -42,17 +45,27 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # The image's HEALTHCHECK hits /api/health, which round-trips the database.
 
   # Same image, different entrypoint. Runs node-cron in the foreground and
   # shells out to the two scripts on schedule.
+  #
+  # dist/worker.mjs, not `npm run worker`: the runtime image ships the bundled
+  # worker rather than the TypeScript sources and tsx. To run a job by hand:
+  #   docker compose exec worker node dist/scripts/process-recurring-payments.mjs
   worker:
     build: .
     restart: unless-stopped
-    command: ["npm", "run", "worker"]
+    command: ["node", "dist/worker.mjs"]
     environment:
       DATABASE_URL: ${DATABASE_URL}
       TZ: America/New_York
       NODE_ENV: production
+    # The image's HEALTHCHECK is an HTTP probe against the Next server, which
+    # this service does not run. Left enabled it would report the worker
+    # permanently unhealthy.
+    healthcheck:
+      disable: true
     depends_on:
       postgres:
         condition: service_healthy

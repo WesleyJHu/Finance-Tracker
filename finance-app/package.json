@@ -14,7 +14,8 @@
     "verify": "npm run lint && npm run typecheck && npm run test",
     "worker": "node worker.mjs",
     "process-recurring": "tsx scripts/process-recurring-payments.ts",
-    "process-monthly-snapshot": "tsx scripts/process-monthly-balance-snapshot.ts"
+    "process-monthly-snapshot": "tsx scripts/process-monthly-balance-snapshot.ts",
+    "build:scripts": "node build-scripts.mjs"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
@@ -30,6 +31,7 @@
     "@types/pg": "^8.18.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "esbuild": "^0.28.2",
     "eslint": "^9",
     "eslint-config-next": "16.1.6",
     "postcss": "^8.5.26",

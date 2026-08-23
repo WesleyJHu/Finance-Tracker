@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Bundled worker and cron scripts, emitted by build-scripts.mjs. Machine
+    // output; linting it just reports on esbuild's codegen.
+    "dist/**",
   ]),
 ]);
 

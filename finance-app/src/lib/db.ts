@@ -3,26 +3,6 @@ import fs from "node:fs"
 import dotenv from "dotenv"
 import { Pool, types as pgTypes, type PoolClient } from "pg"
 
-// Next loads .env.local automatically; the CLI scripts in scripts/ do not.
-// Load it here so both entry points behave identically. Real environment
-// variables always win (dotenv never overrides), so docker compose — which
-// passes DATABASE_URL directly — is unaffected, and this is a no-op there.
-if (!process.env.DATABASE_URL) {
-  // npm run always sets cwd to the package root, so this resolves for
-  // `npm run process-recurring` as well as `npm run dev`.
-  const envPath = path.resolve(process.cwd(), ".env.local")
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath })
-  }
-}
-
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL is not set. Copy .env.example to .env.local (local dev) " +
-      "or pass it as an environment variable (docker compose)."
-  )
-}
-
 // A Postgres `date` has no time and no timezone, but node-postgres inflates it
 // into a JS Date at *local* midnight. Serialized to JSON that becomes an
 // instant, and rendering that instant in ET shifts the day backwards unless
@@ -32,7 +12,34 @@ if (!process.env.DATABASE_URL) {
 // the calendar date it is. 1082 is the OID of `date`.
 pgTypes.setTypeParser(pgTypes.builtins.DATE, (value) => value)
 
+/**
+ * Next loads .env.local automatically; the CLI scripts in scripts/ do not.
+ * Load it here so both entry points behave identically.
+ *
+ * Real environment variables always win — dotenv never overrides — so docker
+ * compose, which passes DATABASE_URL directly, is unaffected and this is a
+ * no-op there.
+ */
+function loadEnvFile() {
+  if (process.env.DATABASE_URL) return
+  // npm run always sets cwd to the package root, so this resolves for
+  // `npm run process-recurring` as well as `npm run dev`.
+  const envPath = path.resolve(process.cwd(), ".env.local")
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath })
+  }
+}
+
 function createPool(): Pool {
+  loadEnvFile()
+
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      "DATABASE_URL is not set. Copy .env.example to .env.local (local dev) " +
+        "or pass it as an environment variable (docker compose)."
+    )
+  }
+
   const created = new Pool({
     connectionString: process.env.DATABASE_URL,
     max: 10,
@@ -55,11 +62,40 @@ function createPool(): Pool {
 // new Pool each time. Cache it on globalThis in development only.
 const globalForPg = globalThis as typeof globalThis & { __financePool?: Pool }
 
-export const pool: Pool = globalForPg.__financePool ?? createPool()
+let instance: Pool | undefined
 
-if (process.env.NODE_ENV !== "production") {
-  globalForPg.__financePool = pool
+function getPool(): Pool {
+  if (!instance) {
+    instance = globalForPg.__financePool ?? createPool()
+    if (process.env.NODE_ENV !== "production") {
+      globalForPg.__financePool = instance
+    }
+  }
+  return instance
 }
+
+/**
+ * The connection pool, created on first use.
+ *
+ * Lazy, and behind a proxy, because `next build` imports every route module to
+ * collect page data. Connecting — or even just reading DATABASE_URL — at module
+ * scope meant the image could not be built without a live database URL, which
+ * is a runtime secret that has no business being present at build time. The
+ * proxy keeps `pool.query(...)` working unchanged at ~40 call sites.
+ */
+export const pool: Pool = new Proxy({} as Pool, {
+  get(_target, property) {
+    const actual = getPool()
+    const value = Reflect.get(actual, property, actual)
+    return typeof value === "function" ? value.bind(actual) : value
+  },
+  set(_target, property, value) {
+    return Reflect.set(getPool(), property, value)
+  },
+  has(_target, property) {
+    return Reflect.has(getPool(), property)
+  },
+})
 
 /**
  * An error carrying the HTTP status a route should respond with.

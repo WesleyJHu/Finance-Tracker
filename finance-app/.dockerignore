@@ -1,13 +1,28 @@
+# The builder stage does `COPY . .`, so everything not listed here ends up in
+# a build layer. The runtime stage copies only .next/standalone, .next/static,
+# public and dist, so nothing here reaches the shipped image either way — but
+# excluding it keeps the build context small and the cache stable.
 node_modules
 .next
+dist
 .git
+.gitignore
 Dockerfile
+.dockerignore
 docker-compose.yml
 npm-debug.log
+*.log
 
-# Secrets must never be baked into an image layer: the Dockerfile does
-# `COPY . .`, so anything matched here would be readable by anyone with the
-# image. DATABASE_URL is passed as an environment variable instead.
+# Not needed to build or run.
+tests
+vitest.config.ts
+CODE_REVIEW.md
+README.md
+scripts/README.md
+
+# Secrets must never be baked into an image layer: anything matched here would
+# be readable by anyone with the image. DATABASE_URL is passed as an
+# environment variable instead.
 .env
 .env.*
 !.env.example
