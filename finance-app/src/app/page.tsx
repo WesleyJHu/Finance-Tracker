@@ -10,6 +10,7 @@ import SettingsModal from '../components/SettingsModal';
 import ProgressBar from '../components/ProgressBar';
 import CategoryIcon from '../components/CategoryIcon';
 import SpendingChart from '../components/SpendingChart';
+import SignOutButton from '../components/SignOutButton';
 import { formatCurrency, formatDate, formatLongDate } from '@/lib/format';
 import { displayCategory } from '@/lib/categories';
 import { isIncome } from '@/lib/accounting';
@@ -227,13 +228,16 @@ export default function Dashboard() {
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setShowTransactionModal(true)}
-          className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800"
-        >
-          Add Transaction
-        </button>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowTransactionModal(true)}
+            className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800"
+          >
+            Add Transaction
+          </button>
+          <SignOutButton />
+        </div>
       </header>
 
       {pageError && (

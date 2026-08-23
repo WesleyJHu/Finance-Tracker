@@ -40,6 +40,12 @@ cp .env.example .env.local
 # then set DATABASE_URL=postgresql://finance:localdev@localhost:55432/finance
 ```
 
+Set a password:
+
+```bash
+npm run auth:setup >> .env.local
+```
+
 ```bash
 npm run dev
 ```
@@ -64,7 +70,8 @@ clear message if there isn't one.
 ## Deploying
 
 ```bash
-cp .env.example .env      # fill in POSTGRES_PASSWORD and DATABASE_URL
+cp .env.example .env         # fill in POSTGRES_PASSWORD and DATABASE_URL
+npm run auth:setup >> .env   # set the login password
 docker compose up -d --build
 ```
 
@@ -121,6 +128,55 @@ transaction and is safe to re-run.
 
 **Apply it to a restored copy of a dump before the live database.**
 
+## Authentication
+
+One password for the whole app — this is a single-user tracker, and there is no
+concept of separate accounts or per-user data.
+
+```bash
+npm run auth:setup >> .env          # or .env.local for local development
+```
+
+It prompts for a password (never echoed, never in argv or shell history) and
+prints two lines: `AUTH_SECRET` and `AUTH_PASSWORD_HASH`. Only the scrypt hash
+is stored, so reading the env file does not hand over a password you might have
+used elsewhere.
+
+**Auth is fail-closed.** With those unset the app answers 503 to everything
+rather than serving the dashboard unauthenticated — a security control that
+quietly switches itself off when misconfigured is worse than none, because you
+cannot tell from the outside. Compose refuses to start without them.
+
+The session is a signed cookie holding nothing but an expiry (30 days,
+HttpOnly, SameSite=Lax). There is no sessions table and therefore no
+per-session revocation: **rotate `AUTH_SECRET` and restart to sign out
+everywhere.**
+
+| Variable | |
+|---|---|
+| `AUTH_SECRET` | signs session cookies; rotating it invalidates all sessions |
+| `AUTH_PASSWORD_HASH` | scrypt hash, `scrypt$N$r$p$salt$hash` |
+| `AUTH_COOKIE_SECURE` | set `true` only behind TLS — a Secure cookie is never sent over plain HTTP, so on a LAN it makes login silently fail |
+| `AUTH_DISABLED` | `true` runs with no login; set `NEXT_PUBLIC_AUTH_DISABLED=true` alongside it to hide the Sign out button. Local development only |
+
+`/api/health` is deliberately public so the container healthcheck works before
+anyone logs in; it returns only `{"status":"ok"}`.
+
+Repeated failures from one address lock out for 15 minutes after 10 attempts.
+That counter is in memory, so it resets on restart — it is a speed bump against
+online guessing, not an access control. scrypt is what resists an attacker who
+has the hash.
+
+### What this is not
+
+There is one password, so anyone who has it sees everything. Adding real
+multi-user separation would mean `user_id` on every table, re-keying
+`monthly_budgets` and `monthly_balance_snapshot` (both currently global
+singletons by design), scoping all 35 queries, and rewriting both cron jobs as
+per-user loops — a project comparable in size to everything else in this repo.
+For separate people on one NAS, run separate compose projects with separate
+databases instead.
+
 ## Layout
 
 | Path | What it is |
@@ -176,6 +232,7 @@ account deletion orphaning history.
 | `npm run typecheck` | `tsc --noEmit`, covering `scripts/` and `tests/` too |
 | `npm test` | vitest |
 | `npm run verify` | lint + typecheck + test |
+| `npm run auth:setup` | generate AUTH_SECRET and AUTH_PASSWORD_HASH |
 | `npm run worker` | the scheduler, in the foreground |
 | `npm run process-recurring` | apply today's recurring payments |
 | `npm run process-monthly-snapshot` | roll the ledger to a new month |

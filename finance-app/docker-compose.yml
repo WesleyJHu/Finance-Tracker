@@ -3,6 +3,7 @@
 # Secrets live in .env (see .env.example), never in this file.
 #
 #     cp .env.example .env      # fill in POSTGRES_PASSWORD
+#     npm run auth:setup >> .env   # generate the login password
 #     docker compose up -d --build
 #
 # First run only, to create the schema:
@@ -40,6 +41,11 @@ services:
       DATABASE_URL: ${DATABASE_URL}
       TZ: America/New_York
       NODE_ENV: production
+      # Fail-closed: without these the app refuses every request rather than
+      # serving the dashboard unauthenticated. Generate with `npm run auth:setup`.
+      AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env — see npm run auth:setup}
+      AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH:?set AUTH_PASSWORD_HASH in .env — see npm run auth:setup}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     ports:
       - "${APP_PORT:-3000}:3000"
     depends_on:

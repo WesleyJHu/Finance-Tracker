@@ -15,7 +15,8 @@
     "worker": "node worker.mjs",
     "process-recurring": "tsx scripts/process-recurring-payments.ts",
     "process-monthly-snapshot": "tsx scripts/process-monthly-balance-snapshot.ts",
-    "build:scripts": "node build-scripts.mjs"
+    "build:scripts": "node build-scripts.mjs",
+    "auth:setup": "tsx scripts/auth-setup.ts"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
