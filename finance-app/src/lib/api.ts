@@ -9,7 +9,14 @@
 import { NextResponse } from "next/server"
 import type { QueryResultRow } from "pg"
 import { HttpError } from "@/lib/db"
-import type { Account, BalanceSnapshot, MonthlyBudget, RecurringPayment, Transaction } from "@/types/api"
+import type {
+  Account,
+  BalanceSnapshot,
+  MonthlyBudget,
+  RecurringPayment,
+  Transaction,
+  YearBalanceSummary,
+} from "@/types/api"
 
 /**
  * Turns a thrown error into a response.
@@ -70,6 +77,34 @@ export function parseMonthYear(params: URLSearchParams): MonthYear | null {
   }
 
   return { month, year }
+}
+
+export type Period = { kind: "month"; month: number; year: number } | { kind: "year"; year: number }
+
+/**
+ * Parses `?month=&year=` (a specific month) or `?year=` alone (a whole
+ * calendar year), for endpoints that support browsing a past year as well as
+ * a past month.
+ *
+ * Returns null when neither is supplied. `month` without `year` still throws,
+ * matching `parseMonthYear`'s existing contract — `parseMonthYear` itself is
+ * left untouched for callers that only ever mean "one specific month".
+ */
+export function parsePeriod(params: URLSearchParams): Period | null {
+  const monthParam = params.get("month")
+  const yearParam = params.get("year")
+
+  if (!monthParam && !yearParam) return null
+
+  if (!monthParam) {
+    const year = Number(yearParam)
+    if (!Number.isInteger(year)) {
+      throw new HttpError(400, "Invalid year")
+    }
+    return { kind: "year", year }
+  }
+
+  return { kind: "month", ...parseMonthYear(params)! }
 }
 
 /**
@@ -154,4 +189,17 @@ export function serializeBalanceSnapshot(row: QueryResultRow): BalanceSnapshot {
 
 export function serializeRecurringPayment(row: QueryResultRow): RecurringPayment {
   return { ...row, amount: num(row.amount), day_of_month: num(row.day_of_month) } as RecurringPayment
+}
+
+export function serializeYearBalanceSummary(
+  year: number,
+  startingRow: QueryResultRow | undefined,
+  endingRow: QueryResultRow | undefined
+): YearBalanceSummary {
+  return {
+    year,
+    starting_balance: startingRow ? num(startingRow.starting_balance) : null,
+    ending_balance:
+      endingRow && endingRow.ending_balance !== null ? num(endingRow.ending_balance) : null,
+  }
 }

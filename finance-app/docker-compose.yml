@@ -33,7 +33,13 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-finance}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      # Not `:?required`: docker compose interpolates every service's
+      # environment before profiles are applied, so a required-variable error
+      # here fired even when --profile with-db was not passed and this
+      # service was never going to start. Falls back to a value that is
+      # merely useless, not fatal, when the profile is off; still required in
+      # spirit when you actually bring this service up.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-set-POSTGRES_PASSWORD-in-.env-before-using---profile-with-db}
       POSTGRES_DB: ${POSTGRES_DB:-finance}
       TZ: America/New_York
     volumes:

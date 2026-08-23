@@ -1,12 +1,12 @@
 "use client";
 
 import React, { useMemo, useState } from 'react';
-import Link from 'next/link';
 import Card from '../components/AccountCard';
 import CreateAccountModal from '../components/CreateAccountModal';
 import AddTransactionModal from '../components/AddTransactionModal';
 import EditTransactionModal from '../components/EditTransactionModal';
 import SettingsModal from '../components/SettingsModal';
+import TabNav from '../components/TabNav';
 import ProgressBar from '../components/ProgressBar';
 import CategoryIcon from '../components/CategoryIcon';
 import SpendingChart from '../components/SpendingChart';
@@ -208,25 +208,7 @@ export default function Dashboard() {
   return (
     <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
       <header className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-8">
-        <div className="flex flex-wrap gap-8 items-center text-slate-700">
-          {/* Was a bare <span>: it looked like the active item in a nav that
-              had no other destinations. Now a real link, marked current. */}
-          <Link
-            href="/"
-            aria-current="page"
-            className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500"
-          >
-            Home
-          </Link>
-
-          <button
-            type="button"
-            onClick={() => setShowSettingsModal(true)}
-            className="text-sm font-semibold uppercase tracking-[0.2em] text-slate-500 hover:text-slate-900 transition"
-          >
-            Settings
-          </button>
-        </div>
+        <TabNav active="home" onSettingsClick={() => setShowSettingsModal(true)} />
 
         <div className="flex flex-wrap items-center gap-3">
           <button

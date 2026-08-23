@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from "next/server"
 import type { PoolClient } from "pg"
 import { pool, withTransaction, HttpError } from "@/lib/db"
 import { isCreditAccount, isIncome, transactionDeltas } from "@/lib/accounting"
-import { monthRange } from "@/lib/dates"
+import { monthRange, yearRange } from "@/lib/dates"
 import {
   handleRouteError,
-  parseMonthYear,
+  parsePeriod,
   readDeleteId,
   requireNumber,
   serializeAccount,
@@ -55,11 +55,13 @@ export async function GET(req: NextRequest) {
 
     // month/year are now honoured alongside `account` rather than ignored when
     // one is present, so the account modal no longer has to re-filter a full
-    // history in the browser.
-    const period = parseMonthYear(searchParams)
+    // history in the browser. `year` alone (no `month`) is also accepted, for
+    // the history tab's year view.
+    const period = parsePeriod(searchParams)
     if (period) {
       // Half-open date range instead of EXTRACT() so idx_transactions_date is used.
-      const { start, end } = monthRange(period.year, period.month)
+      const { start, end } =
+        period.kind === "month" ? monthRange(period.year, period.month) : yearRange(period.year)
       conditions.push(`date >= $${values.length + 1} AND date < $${values.length + 2}`)
       values.push(start, end)
     } else if (!account) {

@@ -68,6 +68,14 @@ export function monthRange(year: number, month: number) {
   }
 }
 
+/** Half-open `[start, end)` bounds for a calendar year, as `YYYY-MM-DD` strings. */
+export function yearRange(year: number) {
+  return {
+    start: toDateString(year, 1, 1),
+    end: toDateString(year + 1, 1, 1),
+  }
+}
+
 /**
  * Whether a recurring payment set to run on `dayOfMonth` is due on `today`.
  *

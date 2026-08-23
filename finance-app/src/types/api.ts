@@ -73,6 +73,19 @@ export interface BalanceSnapshot {
   year: number
 }
 
+/**
+ * A year's starting/ending balance, from GET /api/balance_snapshot?year=.
+ *
+ * Derived from the year's January and December rows in
+ * monthly_balance_snapshot — there is no per-year row. Either field is null
+ * when its month's row does not exist yet (e.g. December hasn't closed).
+ */
+export interface YearBalanceSummary {
+  year: number
+  starting_balance: number | null
+  ending_balance: number | null
+}
+
 /** One month's totals, from GET /api/transactions/monthly_totals. */
 export interface MonthlyTotal {
   year: number

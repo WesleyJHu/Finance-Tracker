@@ -11,6 +11,7 @@ import {
   previousMonth,
   todayInAppTz,
   toDateString,
+  yearRange,
 } from "@/lib/dates"
 
 describe("daysInMonth", () => {
@@ -79,6 +80,16 @@ describe("monthRange", () => {
 
   it("covers February in a leap year without naming the 29th", () => {
     expect(monthRange(2024, 2)).toEqual({ start: "2024-02-01", end: "2024-03-01" })
+  })
+})
+
+describe("yearRange", () => {
+  it("is half-open, so December 31st is included and next January 1st is not", () => {
+    expect(yearRange(2025)).toEqual({ start: "2025-01-01", end: "2026-01-01" })
+  })
+
+  it("rolls into the next calendar year at the upper bound", () => {
+    expect(yearRange(2026)).toEqual({ start: "2026-01-01", end: "2027-01-01" })
   })
 })
 
