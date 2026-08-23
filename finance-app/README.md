@@ -43,7 +43,7 @@ cp .env.example .env.local
 Set a password:
 
 ```bash
-npm run auth:setup >> .env.local
+npm run auth:setup
 ```
 
 ```bash
@@ -70,8 +70,8 @@ clear message if there isn't one.
 ## Deploying
 
 ```bash
-cp .env.example .env         # fill in POSTGRES_PASSWORD and DATABASE_URL
-npm run auth:setup >> .env   # set the login password
+cp .env.example .env                 # fill in POSTGRES_PASSWORD and DATABASE_URL
+npm run auth:setup -- --env .env     # set the login password
 docker compose up -d --build
 ```
 
@@ -134,13 +134,30 @@ One password for the whole app — this is a single-user tracker, and there is n
 concept of separate accounts or per-user data.
 
 ```bash
-npm run auth:setup >> .env          # or .env.local for local development
+npm run auth:setup                   # writes .env.local (local development)
+npm run auth:setup -- --env .env     # writes .env (docker compose)
 ```
 
 It prompts for a password (never echoed, never in argv or shell history) and
-prints two lines: `AUTH_SECRET` and `AUTH_PASSWORD_HASH`. Only the scrypt hash
-is stored, so reading the env file does not hand over a password you might have
-used elsewhere.
+edits the file itself, replacing any previous `AUTH_SECRET` / `AUTH_PASSWORD_HASH`
+rather than appending a second copy. Only the scrypt hash is stored, so reading
+the env file does not hand over a password you might have used elsewhere.
+
+**Passwords may contain spaces**, including at the start and end, and they are
+significant. The setup script says so if yours has leading or trailing
+whitespace, because that is otherwise impossible to diagnose later.
+
+> **Do not redirect this into a file** (`npm run auth:setup >> .env`). Two
+> things go wrong and both are invisible until login fails: `npm run` prints its
+> own `> package@version script` banner on stdout, which lands in the file as if
+> it were a variable; and PowerShell's `>>` writes UTF-16LE with a BOM, which no
+> dotenv parser can read. The script writes the file itself for exactly this
+> reason, and repairs a file already damaged this way. If you need the values on
+> stdout, use `npm run --silent auth:setup -- --print`.
+
+**Which file matters.** Next gives `.env.local` priority over `.env`, so a value
+in `.env.local` wins for `npm run dev` even if `.env` has a different one.
+Compose reads `.env` only.
 
 **Auth is fail-closed.** With those unset the app answers 503 to everything
 rather than serving the dashboard unauthenticated — a security control that
