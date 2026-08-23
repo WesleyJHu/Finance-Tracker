@@ -13,6 +13,10 @@
  *   - PowerShell's `>>` writes UTF-16LE with a BOM, which no dotenv parser
  *     reads. The lines look correct in an editor and parse as nothing.
  *
+ * And having written the file it reads it back through Next's own loader,
+ * because a third failure of the same kind — dotenv-expand eating the `$` in
+ * the old hash format — also showed up only as "the password is wrong".
+ *
  * The password is read from stdin, never echoed, and never written anywhere in
  * plain text — only its scrypt hash is stored.
  */
@@ -20,7 +24,8 @@ import fs from "node:fs"
 import path from "node:path"
 import { randomBytes } from "node:crypto"
 import { createInterface } from "node:readline"
-import { hashPassword } from "@/lib/password"
+import { loadEnvConfig } from "@next/env"
+import { hashPassword, isValidHashFormat } from "@/lib/password"
 
 const MIN_LENGTH = 12
 const MANAGED_KEYS = ["AUTH_SECRET", "AUTH_PASSWORD_HASH"] as const
@@ -167,6 +172,42 @@ function writeEnvFile(envPath: string, values: Record<string, string>) {
   return absolute
 }
 
+/**
+ * Reads the file back the way Next will, and fails loudly if it does not match.
+ *
+ * Next runs dotenv-expand over .env files, so not every value survives being
+ * written to one — a `$` is read as a variable reference. That is exactly how
+ * the previous hash format broke, and it was invisible from the login form:
+ * the password was simply always wrong. Checking here means a future format or
+ * encoding problem is caught at setup time, by the tool that caused it.
+ */
+function verifyRoundTrip(envPath: string, values: Record<string, string>) {
+  const { combinedEnv } = loadEnvConfig(
+    path.dirname(envPath),
+    true,
+    { info: () => {}, error: () => {} },
+    true
+  )
+
+  for (const [key, expected] of Object.entries(values)) {
+    const actual = combinedEnv?.[key]
+    if (actual !== expected) {
+      throw new Error(
+        [
+          `${key} does not survive being read back from ${envPath}.`,
+          `  wrote: ${expected}`,
+          `  read:  ${actual ?? "(nothing)"}`,
+          `This is a bug in auth:setup, not in your password.`,
+        ].join("\n")
+      )
+    }
+  }
+
+  if (!isValidHashFormat(combinedEnv?.AUTH_PASSWORD_HASH)) {
+    throw new Error(`AUTH_PASSWORD_HASH read back from ${envPath} is not a valid hash.`)
+  }
+}
+
 async function main() {
   const options = parseArgs(process.argv.slice(2))
 
@@ -228,6 +269,8 @@ async function main() {
   }
 
   const written = writeEnvFile(options.envPath, values)
+
+  verifyRoundTrip(written, values)
 
   process.stderr.write(`\nUpdated ${written}\n`)
   process.stderr.write("Restart the app for it to take effect.\n")

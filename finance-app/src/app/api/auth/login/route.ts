@@ -6,7 +6,7 @@ import {
   readAuthConfig,
   sessionCookieOptions,
 } from "@/lib/auth"
-import { verifyPassword } from "@/lib/password"
+import { isValidHashFormat, verifyPassword } from "@/lib/password"
 
 // Node, not Edge: scrypt is node:crypto.
 export const runtime = "nodejs"
@@ -58,6 +58,20 @@ export async function POST(req: NextRequest) {
   const auth = readAuthConfig()
   if (!auth.ok) {
     console.error(`Auth is not configured: ${auth.reason}`)
+    return NextResponse.json({ error: "Server is not configured for authentication" }, { status: 503 })
+  }
+
+  // A hash that is present but not a hash means every password is rejected,
+  // which is indistinguishable from "wrong password" from the outside. Next
+  // runs dotenv-expand over .env files and used to eat the `$` separators, so
+  // this failure has happened for real; say so rather than letting someone
+  // retype a correct password forever.
+  if (!isValidHashFormat(auth.config.passwordHash)) {
+    console.error(
+      "AUTH_PASSWORD_HASH is set but is not a valid scrypt hash. If it came " +
+        "from a .env file, re-run `npm run auth:setup` — older hashes used `$` " +
+        "as a separator, which Next's dotenv-expand consumes."
+    )
     return NextResponse.json({ error: "Server is not configured for authentication" }, { status: 503 })
   }
 

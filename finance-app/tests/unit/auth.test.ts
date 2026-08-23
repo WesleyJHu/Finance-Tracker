@@ -123,12 +123,15 @@ describe("password hashing", () => {
     const hash = await hashPassword(PASSWORD)
     expect(hash).not.toContain(PASSWORD)
     expect(hash).not.toContain("correct")
-    expect(hash.startsWith("scrypt$")).toBe(true)
+    expect(hash.startsWith("scrypt:")).toBe(true)
   }, 60_000)
 
   it("carries its parameters, so the cost can be raised later", async () => {
     const hash = await hashPassword(PASSWORD)
-    const [prefix, cost, blockSize, parallelization] = hash.split("$")
+    // `:`, not `$`: Next runs dotenv-expand over .env files and reads a `$` as
+    // a variable reference, which silently destroyed the hash on the way in.
+    // See tests/unit/env-round-trip.test.ts.
+    const [prefix, cost, blockSize, parallelization] = hash.split(":")
 
     expect(prefix).toBe("scrypt")
     expect(Number(cost)).toBeGreaterThanOrEqual(2 ** 17)
@@ -140,13 +143,15 @@ describe("password hashing", () => {
     for (const stored of [
       "",
       "not-a-hash",
-      "scrypt$",
-      "scrypt$1$2$3$4",
-      "bcrypt$131072$8$1$c2FsdA==$aGFzaA==",
-      "scrypt$notanumber$8$1$c2FsdA==$aGFzaA==",
-      "scrypt$131072$8$1$$",
+      "scrypt:",
+      "scrypt:1:2:3:4",
+      "bcrypt:131072:8:1:c2FsdA==:aGFzaA==",
+      "scrypt:notanumber:8:1:c2FsdA==:aGFzaA==",
+      "scrypt:131072:8:1::",
       // An absurd cost makes scrypt throw; that must read as "no" not a 500.
-      "scrypt$999999999$8$1$c2FsdA==$aGFzaA==",
+      "scrypt:999999999:8:1:c2FsdA==:aGFzaA==",
+      // The legacy separator with a broken shape is still rejected.
+      "scrypt$1$2$3$4",
     ]) {
       expect(await verifyPassword(PASSWORD, stored), stored).toBe(false)
     }

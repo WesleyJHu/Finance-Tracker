@@ -27,7 +27,20 @@ const SALT_LENGTH = 16
 const PREFIX = "scrypt"
 
 /**
- * `scrypt$N$r$p$salt$hash`, both parts base64.
+ * The field separator, deliberately NOT `$`.
+ *
+ * Next runs dotenv-expand over .env files, so a `$` in a value is read as a
+ * variable reference: `scrypt$131072$8$1$salt$hash` loaded back as
+ * `scrypt31072==...`, with the cost parameters and most of the salt expanded
+ * to nothing. The hash was destroyed before it reached the verifier, so no
+ * password could ever match — and it failed identically in production.
+ *
+ * `:` has no meaning to dotenv-expand, and neither does the base64 alphabet.
+ */
+const SEPARATOR = ":"
+
+/**
+ * `scrypt:N:r:p:salt:hash`, both parts base64.
  *
  * The parameters travel with the hash so raising the cost later does not
  * invalidate an existing password.
@@ -49,7 +62,33 @@ export async function hashPassword(password: string): Promise<string> {
     PARALLELIZATION,
     salt.toString("base64"),
     derived.toString("base64"),
-  ].join("$")
+  ].join(SEPARATOR)
+}
+
+/**
+ * Splits a stored hash into its fields, or null if it is not one.
+ *
+ * Accepts the legacy `$` separator too: a hash passed as a real environment
+ * variable (docker `-e`, or compose) never went through dotenv-expand and is
+ * still intact, so there is no reason to reject it.
+ */
+function parseHash(stored: string): string[] | null {
+  for (const separator of [SEPARATOR, "$"]) {
+    const parts = stored.split(separator)
+    if (parts.length === 6 && parts[0] === PREFIX) return parts
+  }
+  return null
+}
+
+/**
+ * Whether AUTH_PASSWORD_HASH is a hash at all.
+ *
+ * The login route uses this to answer "the server is misconfigured" instead of
+ * "wrong password" when the value has been mangled — which is the difference
+ * between a five-minute diagnosis and an unfalsifiable one.
+ */
+export function isValidHashFormat(stored: string | undefined): boolean {
+  return !!stored && parseHash(stored) !== null
 }
 
 /**
@@ -60,8 +99,8 @@ export async function hashPassword(password: string): Promise<string> {
  * value is present but broken.
  */
 export async function verifyPassword(password: string, stored: string): Promise<boolean> {
-  const parts = stored.split("$")
-  if (parts.length !== 6 || parts[0] !== PREFIX) return false
+  const parts = parseHash(stored)
+  if (!parts) return false
 
   const [, cost, blockSize, parallelization, saltB64, hashB64] = parts
 
