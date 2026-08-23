@@ -37,29 +37,31 @@ export interface PeriodSelectorProps {
  * page rather than owning it in the control itself.
  */
 export default function PeriodSelector({ value, onChange, today }: PeriodSelectorProps) {
-  const years = Array.from({ length: YEARS_OF_HISTORY }, (_, i) => today.year - 1 - i);
+  // Year mode excludes the current year outright (it's still in progress), but
+  // month mode should still offer it whenever it has at least one elapsed
+  // month — January itself doesn't count, so a January "today" excludes it too.
+  const pastYears = Array.from({ length: YEARS_OF_HISTORY }, (_, i) => today.year - 1 - i);
+  const monthModeYears = today.month > 1 ? [today.year, ...pastYears] : pastYears;
+  const yearModeYears = pastYears;
 
-  // The current month is in progress, so every month in an earlier year is
-  // fair game, but today.year itself only offers months strictly before this
-  // one (defensive: the year dropdown never actually offers today.year).
   const monthsFor = (year: number) => {
     if (year < today.year) return Array.from({ length: 12 }, (_, i) => i + 1);
-    // Defensive: today.year itself is never offered by the year dropdown, but
-    // keep this correct in case a caller passes it in directly.
     return Array.from({ length: today.month - 1 }, (_, i) => i + 1);
   };
 
   const setMode = (mode: "month" | "year") => {
     if (mode === value.mode) return;
     if (mode === "month") {
-      // Switching into month mode on a year that has no past months yet
-      // (only possible for today.year, which the year list never offers)
-      // falls back to last month.
+      // Every year offered while in year mode is also valid in month mode
+      // (monthModeYears is a superset of yearModeYears), so the year carries
+      // over unchanged; only the month may need to fall back.
       const options = monthsFor(value.year);
       const month = options.includes(value.month) ? value.month : options[options.length - 1];
-      onChange({ mode, month, year: options.length > 0 ? value.year : today.year - 1 });
+      onChange({ mode, month, year: value.year });
     } else {
-      onChange({ mode, month: value.month, year: value.year });
+      // The current year isn't valid in year mode — fall back to last year.
+      const year = value.year === today.year ? today.year - 1 : value.year;
+      onChange({ mode, month: value.month, year });
     }
   };
 
@@ -119,7 +121,7 @@ export default function PeriodSelector({ value, onChange, today }: PeriodSelecto
         value={value.year}
         onChange={(event) => setYear(Number(event.target.value))}
       >
-        {years.map((year) => (
+        {(value.mode === "month" ? monthModeYears : yearModeYears).map((year) => (
           <option key={year} value={year}>
             {year}
           </option>
