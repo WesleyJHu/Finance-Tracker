@@ -148,13 +148,13 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="account-max">
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="account-balance">
               Balance
             </label>
             <input
-              id="account-max"
+              id="account-balance"
               type="number"
-              step="1.00"
+              step="0.01"
               value={accountBalance}
               onChange={(event) => setAccountBalance(event.target.value)}
               className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
@@ -169,7 +169,7 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
             <input
               id="account-max"
               type="number"
-              step="1.00"
+              step="0.01"
               value={accountMax}
               onChange={(event) => setAccountMax(event.target.value)}
               className="w-full rounded-lg border border-gray-300 px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"

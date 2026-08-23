@@ -68,12 +68,14 @@ const AccountModal: React.FC<AccountModalProps> = ({
     return isIncomeTransaction(transaction) ? `+${value}` : `-${value}`;
   };
 
+  // The subtitle said "All transactions for this account" while the request
+  // has always been scoped to the current month.
   return (
     <Modal
       onClose={onClose}
       size="wide"
       title={`${accountName} Transactions`}
-      description="All transactions for this account"
+      description="Transactions this month"
     >
 
         {loading && (
@@ -92,7 +94,7 @@ const AccountModal: React.FC<AccountModalProps> = ({
           <div className="space-y-4">
             {transactions.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500">No transactions on this account</p>
+                <p className="text-gray-500">No transactions on this account this month</p>
               </div>
             ) : (
               <div className="space-y-2">

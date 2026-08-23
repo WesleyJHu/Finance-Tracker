@@ -1,17 +1,22 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import Link from 'next/link';
 import Card from '../components/AccountCard';
 import CreateAccountModal from '../components/CreateAccountModal';
 import AddTransactionModal from '../components/AddTransactionModal';
 import EditTransactionModal from '../components/EditTransactionModal';
 import SettingsModal from '../components/SettingsModal';
 import ProgressBar from '../components/ProgressBar';
+import CategoryIcon from '../components/CategoryIcon';
+import SpendingChart from '../components/SpendingChart';
 import { formatCurrency, formatDate, formatLongDate } from '@/lib/format';
-import { categoryIcon } from '@/lib/categories';
+import { displayCategory } from '@/lib/categories';
 import { isIncome } from '@/lib/accounting';
 import { useDashboardData } from '@/hooks/useDashboardData';
 import type { Account, Transaction, WithAccounts } from '@/types/api';
+
+const ALL = 'all';
 
 export default function Dashboard() {
   const {
@@ -19,6 +24,7 @@ export default function Dashboard() {
     transactions,
     monthlyBudget,
     balanceSnapshot,
+    monthlyTotals,
     loading,
     error,
     today,
@@ -33,6 +39,12 @@ export default function Dashboard() {
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+
+  // The Filter button was inert: no handler, no state, no dropdown. The
+  // transaction list is entirely client-side, so filtering is just this.
+  const [showFilters, setShowFilters] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState<string>(ALL);
+  const [accountFilter, setAccountFilter] = useState<string>(ALL);
 
   const handleAccountUpdate = (updatedAccount: Account) => {
     setAccounts(prev => prev.map(acc => acc.id === updatedAccount.id ? { ...acc, ...updatedAccount } : acc));
@@ -63,6 +75,7 @@ export default function Dashboard() {
   };
 
   const handleDeleteTransaction = async (transaction: Transaction) => {
+    setPageError(null);
     try {
       const res = await fetch(`/api/transactions?id=${encodeURIComponent(transaction.id)}`, {
         method: 'DELETE',
@@ -123,6 +136,51 @@ export default function Dashboard() {
   const remainingBudget = budgetCapacity - totalExpenses + totalIncome;
   const accountNameById = Object.fromEntries(accounts.map((account) => [account.id, account.name]));
 
+  // `day` comes from todayInAppTz(), which always returns 1-31, so this can
+  // never divide by zero. The guard is against the value going missing some
+  // other way and the month's entire spend being displayed as a daily figure.
+  const dailyAverage = day > 0 ? totalExpenses / day : 0;
+
+  // Savings rate, which the card labelled but never showed: the share of this
+  // month's income that has not been spent. Undefined with no income, rather
+  // than a division by zero rendered as NaN or Infinity.
+  const savingsRate = totalIncome > 0 ? (totalIncome - totalExpenses) / totalIncome : null;
+
+  // "Stable" was a hardcoded string. Compare this month's income with last
+  // month's, from the same history the chart uses.
+  const incomeTrend = useMemo(() => {
+    const previous = monthlyTotals.find(
+      (entry) => !(entry.year === year && entry.month === month)
+        && (entry.year === (month === 1 ? year - 1 : year))
+        && (entry.month === (month === 1 ? 12 : month - 1))
+    );
+    if (!previous) return 'Stable';
+    // A 2% band, so ordinary variation does not read as a trend.
+    const threshold = Math.max(previous.income * 0.02, 1);
+    if (totalIncome > previous.income + threshold) return 'Up';
+    if (totalIncome < previous.income - threshold) return 'Down';
+    return 'Stable';
+  }, [monthlyTotals, totalIncome, month, year]);
+
+  const filteredTransactions = useMemo(
+    () =>
+      transactions.filter(
+        (transaction) =>
+          (categoryFilter === ALL || transaction.category === categoryFilter) &&
+          (accountFilter === ALL || transaction.account_id === accountFilter)
+      ),
+    [transactions, categoryFilter, accountFilter]
+  );
+
+  const filtersActive = categoryFilter !== ALL || accountFilter !== ALL;
+
+  // Only categories that actually appear this month, so the dropdown never
+  // offers a filter that yields an empty table.
+  const presentCategories = useMemo(
+    () => Array.from(new Set(transactions.map((t) => t.category))).sort(),
+    [transactions]
+  );
+
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
@@ -133,15 +191,14 @@ export default function Dashboard() {
     );
   }
 
-  // A failed delete replaced the whole page before this refactor too. Keeping
-  // that behaviour here; replacing it with inline error UI is Phase 5.
-  const displayError = error ?? pageError;
-
-  if (displayError) {
+  // Only a failure to load the dashboard at all replaces the page. A failed
+  // action — a delete that was rejected, say — used to blank the whole screen
+  // and lose everything already on it; it now renders inline, below.
+  if (error) {
     return (
       <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
         <div className="flex items-center justify-center h-screen">
-          <p className="text-2xl text-red-600">Error: {displayError}</p>
+          <p className="text-2xl text-red-600">Error: {error}</p>
         </div>
       </main>
     );
@@ -151,7 +208,15 @@ export default function Dashboard() {
     <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
       <header className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-8">
         <div className="flex flex-wrap gap-8 items-center text-slate-700">
-          <span className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500">Home</span>
+          {/* Was a bare <span>: it looked like the active item in a nav that
+              had no other destinations. Now a real link, marked current. */}
+          <Link
+            href="/"
+            aria-current="page"
+            className="text-sm font-semibold uppercase tracking-[0.35em] text-slate-500"
+          >
+            Home
+          </Link>
 
           <button
             type="button"
@@ -171,6 +236,19 @@ export default function Dashboard() {
         </button>
       </header>
 
+      {pageError && (
+        <div className="mb-6 flex items-center justify-between gap-4 rounded-3xl border border-red-200 bg-red-50 px-5 py-4">
+          <p className="text-sm text-red-700">{pageError}</p>
+          <button
+            type="button"
+            onClick={() => setPageError(null)}
+            className="text-sm font-semibold text-red-700 hover:text-red-900"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       <section className="mb-8">
         <h1 className="text-4xl md:text-5xl font-bold text-slate-900 text-center">
           Today is {formattedDate}
@@ -180,12 +258,14 @@ export default function Dashboard() {
             <h1 className="mt-2 text-3xl font-bold text-slate-900">Account Overview</h1>
           </div>
           <div className="flex flex-wrap gap-3">
+            {/* "Link New Account" implied a bank connection. It opens a form
+                where you type a name and a balance. */}
             <button
               type="button"
               onClick={() => setShowAccountModal(true)}
               className="rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
             >
-              Link New Account
+              Add Account
             </button>
           </div>
         </div>
@@ -212,7 +292,7 @@ export default function Dashboard() {
             className="flex min-h-44 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-slate-400 hover:text-slate-800"
           >
             <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-2xl">+</span>
-            <span className="text-sm font-semibold">Link New Account</span>
+            <span className="text-sm font-semibold">Add Account</span>
           </button>
         </div>
       </section>
@@ -225,15 +305,8 @@ export default function Dashboard() {
               <p className="mt-4 text-4xl font-bold">{formatCurrency(totalExpenses)}</p>
             </div>
           </div>
-          <div className="mt-8 flex items-end gap-2">
-            {Array.from({ length: 6 }).map((_, index) => (
-              <div
-                key={index}
-                className={`w-full rounded-xl bg-slate-800 ${index === 5 ? 'h-40' : index === 4 ? 'h-36' : index === 3 ? 'h-32' : index === 2 ? 'h-28' : index === 1 ? 'h-24' : 'h-20'}`}
-              />
-            ))}
-          </div>
-          <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(totalExpenses / day)}</p>
+          <SpendingChart className="mt-8" totals={monthlyTotals} />
+          <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(dailyAverage)}</p>
         </div>
 
         <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
@@ -243,7 +316,16 @@ export default function Dashboard() {
               <p className="text-4xl font-bold text-slate-900">{formatCurrency(remainingBudget)}</p>
               <p className="mt-3 text-sm text-slate-500">Budget + income - spending</p>
             </div>
-            <div className="rounded-3xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{monthlyBudget ? 'Updated' : 'No budget'}</div>
+            {/* Said "Updated" whenever a budget row existed, which told you
+                nothing. The figure above is only trustworthy once the monthly
+                job has written this month's snapshot; say which it is. */}
+            {!monthlyBudget ? (
+              <div className="rounded-3xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600">No budget</div>
+            ) : balanceSnapshot ? (
+              <div className="rounded-3xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">Up to date</div>
+            ) : (
+              <div className="rounded-3xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">No carryover</div>
+            )}
           </div>
           {monthlyBudget ? (
             <div className="mt-6">
@@ -265,9 +347,26 @@ export default function Dashboard() {
           <div className="mt-5 flex items-center justify-between gap-4">
             <div>
               <p className="text-4xl font-bold text-slate-900">{formatCurrency(totalIncome)}</p>
-              <p className="mt-3 text-sm text-slate-500">Savings rate</p>
+              {/* Was the bare words "Savings rate" under the income figure,
+                  with no rate anywhere. */}
+              <p className="mt-3 text-sm text-slate-500">
+                {savingsRate === null
+                  ? 'Savings rate: no income yet'
+                  : `Savings rate: ${Math.round(savingsRate * 100)}%`}
+              </p>
             </div>
-            <div className="rounded-3xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">Stable</div>
+            <div
+              className={`rounded-3xl px-4 py-3 text-sm font-semibold ${
+                incomeTrend === 'Up'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : incomeTrend === 'Down'
+                    ? 'bg-rose-50 text-rose-700'
+                    : 'bg-slate-100 text-slate-600'
+              }`}
+              title="This month's income compared with last month's"
+            >
+              {incomeTrend}
+            </div>
           </div>
           <div className="mt-6 rounded-3xl bg-slate-50 p-4 text-center text-sm text-slate-500">
             {monthlyBudget ? `${formatCurrency(monthlyBudget.base_budget)} base budget` : 'No budget data available'}
@@ -307,8 +406,17 @@ export default function Dashboard() {
             <h2 className="mt-2 text-2xl font-semibold text-slate-900">Latest activity</h2>
           </div>
           <div className="flex flex-wrap gap-3">
-            <button className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400">
-              Filter
+            <button
+              type="button"
+              onClick={() => setShowFilters((open) => !open)}
+              aria-expanded={showFilters}
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+                filtersActive
+                  ? 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
+              }`}
+            >
+              {filtersActive ? `Filter (${filteredTransactions.length})` : 'Filter'}
             </button>
             <button
               type="button"
@@ -319,6 +427,58 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+
+        {showFilters && (
+          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <label htmlFor="filter-category" className="block text-sm font-medium text-slate-700 mb-1">
+                Category
+              </label>
+              <select
+                id="filter-category"
+                value={categoryFilter}
+                onChange={(event) => setCategoryFilter(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm focus:border-slate-500 focus:outline-none"
+              >
+                <option value={ALL}>All categories</option>
+                {presentCategories.map((category) => (
+                  <option key={category} value={category}>
+                    {displayCategory(category)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label htmlFor="filter-account" className="block text-sm font-medium text-slate-700 mb-1">
+                Account
+              </label>
+              <select
+                id="filter-account"
+                value={accountFilter}
+                onChange={(event) => setAccountFilter(event.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm focus:border-slate-500 focus:outline-none"
+              >
+                <option value={ALL}>All accounts</option>
+                {accounts.map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                setCategoryFilter(ALL);
+                setAccountFilter(ALL);
+              }}
+              disabled={!filtersActive}
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Clear
+            </button>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse text-left">
@@ -333,15 +493,20 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              {transactions.toReversed().map((transaction) => (
+              {filteredTransactions.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-8 text-center text-sm text-slate-500">
+                    {transactions.length === 0
+                      ? 'No transactions this month.'
+                      : 'No transactions match these filters.'}
+                  </td>
+                </tr>
+              )}
+              {filteredTransactions.toReversed().map((transaction) => (
                 <tr key={transaction.id} className="transition hover:bg-slate-100 border-b-8 border-white">
                   <td className="bg-slate-50 px-4 py-4 text-sm text-slate-800 rounded-l-2xl">
                     <div className="flex items-center gap-2">
-                      <img
-                        src={categoryIcon(transaction.category)}
-                        alt={transaction.category}
-                        className="h-6 w-6"
-                      />
+                      <CategoryIcon category={transaction.category} className="h-6 w-6" />
                       <span>{transaction.description || transaction.category}</span>
                     </div>
                   </td>
@@ -355,6 +520,8 @@ export default function Dashboard() {
                     <div className="inline-flex items-center gap-2">
                       <button
                         type="button"
+                        title="Edit transaction"
+                        aria-label="Edit transaction"
                         className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-100"
                         onClick={() => setEditingTransaction(transaction)}
                       >
@@ -362,6 +529,8 @@ export default function Dashboard() {
                       </button>
                       <button
                         type="button"
+                        title="Delete transaction"
+                        aria-label="Delete transaction"
                         className="rounded-full border border-rose-300 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
                         onClick={() => handleDeleteTransaction(transaction)}
                       >

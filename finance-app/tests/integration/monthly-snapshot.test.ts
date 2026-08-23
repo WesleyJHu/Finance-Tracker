@@ -13,7 +13,7 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
 import { pool } from "@/lib/db"
-import { previousMonth, todayInAppTz, toDateString } from "@/lib/dates"
+import { daysInMonth, previousMonth, todayInAppTz, toDateString } from "@/lib/dates"
 import {
   accountById,
   createAccount,
@@ -270,5 +270,57 @@ describe("process-monthly-balance-snapshot", () => {
       .then(() => null)
       .catch((e) => e as { code?: string })
     expect(error?.code).toBe("23505")
+  })
+})
+
+describe("process-monthly-balance-snapshot: month boundaries", () => {
+  it("counts only the previous month's transactions toward its ending balance", async () => {
+    // The totals query is a half-open [start, end) range on `date`. An
+    // off-by-one at either edge silently moves money between months, and an
+    // EXTRACT()-based filter (what this replaced) would also miss the index.
+    await createBudget(pool, CURRENT.month, 2000)
+    await createSnapshot(pool, {
+      month: PREVIOUS.month,
+      year: PREVIOUS.year,
+      startingBalance: 1000,
+    })
+    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const twoMonthsAgo = previousMonth(PREVIOUS)
+    const lastDayOfPrevious = daysInMonth(PREVIOUS.year, PREVIOUS.month)
+
+    await pool.query(
+      `INSERT INTO transactions (date, amount, description, category, account_id)
+       VALUES ($1, 11, 'first day',  'bills', $5),
+              ($2, 22, 'last day',   'bills', $5),
+              ($3, 999, 'too old',   'bills', $5),
+              ($4, 999, 'too new',   'bills', $5)`,
+      [
+        toDateString(PREVIOUS.year, PREVIOUS.month, 1),
+        toDateString(PREVIOUS.year, PREVIOUS.month, lastDayOfPrevious),
+        toDateString(twoMonthsAgo.year, twoMonthsAgo.month, 15),
+        toDateString(CURRENT.year, CURRENT.month, 1),
+        account.id,
+      ]
+    )
+
+    const run = await runScript(SCRIPTS.snapshot)
+    expect(run.code, run.stderr).toBe(0)
+
+    // Both edges of the month are included; neither neighbour is.
+    expect(await snapshotFor(PREVIOUS.month, PREVIOUS.year)).toMatchObject({
+      ending_balance: 1000 - 11 - 22,
+    })
+  })
+
+  it("does not zero an account that is already at zero", async () => {
+    // The reset is `WHERE ... AND balance <> 0`, so a no-op run touches no
+    // rows at all. This is what makes a re-run cheap as well as safe.
+    await createBudget(pool, CURRENT.month, 2000)
+    const amex = await createAccount(pool, { name: "Amex", type: "Credit Card", balance: 0 })
+
+    const run = await runScript(SCRIPTS.snapshot)
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.stdout).toMatch(/Reset 0 account\(s\)/)
+    expect((await accountById(pool, amex.id)).balance).toBe(0)
   })
 })

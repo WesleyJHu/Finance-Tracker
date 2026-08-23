@@ -36,7 +36,13 @@ export async function GET(req: NextRequest) {
     }
 }
 
-// Updates the budget for a specific month
+// Sets the budget for a specific month, creating the row if it does not exist.
+//
+// An upsert rather than a plain UPDATE: the settings grid always renders all 12
+// months, so a month with no row yet is editable in the UI but used to 404 on
+// save. Nothing checked the response, so the value silently reverted on the
+// next load. Postgres has no INSERT-only path here worth exposing separately,
+// so PATCH covers both and there is no POST.
 export async function PATCH(req: NextRequest) {
     try {
         const body: MonthlyBudgetUpdateBody = await req.json()
@@ -56,17 +62,13 @@ export async function PATCH(req: NextRequest) {
 
         const result = await pool.query(
             `
-            UPDATE "monthly_budgets"
-            SET base_budget = $1
-            WHERE month = $2
+            INSERT INTO "monthly_budgets" (month, base_budget)
+            VALUES ($2, $1)
+            ON CONFLICT (month) DO UPDATE SET base_budget = EXCLUDED.base_budget
             RETURNING *
             `,
             [parsedBudget, Number(month)]
         )
-
-        if (result.rowCount === 0) {
-            throw new HttpError(404, "Budget not found for that month")
-        }
 
         return NextResponse.json(serializeMonthlyBudget(result.rows[0]))
     } catch (error) {

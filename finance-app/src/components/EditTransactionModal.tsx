@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Modal from "./Modal";
 import { isCreditAccount as isCreditAccountType } from "@/lib/accountTypes";
 import { CATEGORIES, INCOME, displayCategory, normalizeCategory } from "@/lib/categories";
@@ -47,6 +47,22 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
 
   const selectedAccount = accounts.find((account) => account.id === accountId);
   const isCreditAccount = isCreditAccountType(selectedAccount?.type);
+
+  // Matches AddTransactionModal exactly. The two modals used to disagree: this
+  // one kept Income in the list and marked it `disabled`, which leaves the
+  // select showing a disabled value as its selection if you switch an existing
+  // Income transaction onto a credit account. Removing the option and moving
+  // the selection off it is the behaviour that cannot produce that state.
+  const availableCategories = useMemo(
+    () => (isCreditAccount ? CATEGORIES.filter((option) => option !== INCOME) : CATEGORIES),
+    [isCreditAccount]
+  );
+
+  useEffect(() => {
+    if (isCreditAccount && category === INCOME) {
+      setCategory(availableCategories[0]);
+    }
+  }, [isCreditAccount, category, availableCategories]);
 
   const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -164,15 +180,15 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
               required
             >
               {/* Value is the enum's lowercase form; the label stays Title Case. */}
-              {CATEGORIES.map((option) => (
-                <option key={option} value={option} disabled={isCreditAccount && option === INCOME}>
+              {availableCategories.map((option) => (
+                <option key={option} value={option}>
                   {displayCategory(option)}
                 </option>
               ))}
             </select>
             {isCreditAccount && (
               <p className="mt-2 text-xs text-gray-500">
-                Income is not allowed for credit accounts.
+                Credit accounts cannot be used for Income transactions.
               </p>
             )}
           </div>

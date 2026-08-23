@@ -73,6 +73,15 @@ export interface BalanceSnapshot {
   year: number
 }
 
+/** One month's totals, from GET /api/transactions/monthly_totals. */
+export interface MonthlyTotal {
+  year: number
+  /** 1-12. */
+  month: number
+  income: number
+  expenses: number
+}
+
 export interface RecurringPayment {
   id: number
   amount: number
@@ -111,13 +120,6 @@ export type TransactionUpdateBody = Partial<TransactionCreateBody> & { id: strin
 export type MonthlyBudgetUpdateBody = {
   month: number
   base_budget: number
-}
-
-export type BalanceSnapshotCreateBody = {
-  starting_balance: number
-  ending_balance?: number | null
-  month: number
-  year: number
 }
 
 export type RecurringPaymentCreateBody = {

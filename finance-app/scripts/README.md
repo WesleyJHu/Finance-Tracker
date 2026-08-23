@@ -1,124 +1,89 @@
-# Finance App Scripts
+# Scheduled jobs
 
-This directory contains automated scripts for the finance tracking application.
+Two one-shot scripts, both scheduled by [`worker.mjs`](../worker.mjs), which runs
+as the `worker` service in [`docker-compose.yml`](../docker-compose.yml).
 
-> **The scheduler is `worker.mjs`, run by the `worker` service in
-> `docker-compose.yml`.** You do not need cron, Task Scheduler, or PM2 — the
-> sections below describing them are stale and are being rewritten.
->
-> **Do not run these under PM2.** PM2 restarts a process when it exits, and
-> these are one-shot scripts, so `pm2 start npm -- run process-monthly-snapshot`
-> produces an endless loop of monthly snapshots.
->
-> Both scripts are safe to run by hand at any time: a recurring payment already
-> applied this month is skipped, and the snapshot job only upserts.
+You do not need cron, Task Scheduler, or PM2. **Do not run these under PM2** —
+it restarts a process when it exits, and these exit on purpose, so
+`pm2 start npm -- run process-monthly-snapshot` produces an endless loop of
+monthly snapshots.
 
-## Monthly Balance Snapshot Script
+Both are safe to run by hand at any time, and safe to run twice.
 
-This script should be run at the start of each new month to create balance snapshots and update budget tracking.
+| Script | Schedule | npm script |
+|---|---|---|
+| `process-recurring-payments.ts` | daily, midnight ET | `npm run process-recurring` |
+| `process-monthly-balance-snapshot.ts` | 1st of the month, midnight ET | `npm run process-monthly-snapshot` |
 
-### How it works
+`worker.mjs` runs jobs through a single queue rather than concurrently. Both
+fire at midnight on the 1st, and they both write `accounts.balance`; running
+them at the same time left the result dependent on which finished first.
 
-The script runs monthly and:
+## process-recurring-payments
 
-1. **Updates Previous Month**: Sets the ending balance of the previous month to the current total account balance
-2. **Calculates Starting Balance**: Takes the previous month's ending balance and adds the new month's base budget
-3. **Creates New Snapshot**: Creates or updates a balance snapshot for the current month with the calculated starting balance
+Applies every recurring payment whose day of the month is today.
 
-### Setup Cron Job
+- The due day is **clamped to the length of the month**, so a payment set to the
+  31st fires on the 28th of February rather than never firing at all. Each
+  payment fires exactly once per month, always.
+- Idempotent by database constraint, not by application logic. The insert is
+  `ON CONFLICT (recurring_payment_id, period_year, period_month) DO NOTHING`,
+  and the balance update is skipped when nothing was inserted — so a container
+  restart, a double cron fire, or a manual re-run cannot double-charge.
+- Dates are the ET calendar date. Using a UTC instant put any run after 20:00 ET
+  on tomorrow's date, which lands in the wrong month on the 30th and 31st.
+- `recurring_payments.category` is `varchar` in Title Case;
+  `transactions.category` is the lowercase enum `public."Category"`. The script
+  lowercases on the way across. That conversion is load-bearing — without it the
+  insert throws.
+- Exits non-zero on failure, so the worker can see it.
 
-#### On Linux/Mac
+## process-monthly-balance-snapshot
 
-1. Open crontab: `crontab -e`
-2. Add this line to run at 12:01 AM on the 1st of each month:
-   ```
-   1 0 1 * * cd /path/to/your/finance-app && npm run process-monthly-snapshot
-   ```
+Rolls the ledger over at the start of a new month, in one transaction:
 
-#### On Windows
+1. Closes out the previous month — writes its `ending_balance` as
+   `starting_balance + income - expenses`.
+2. Opens the current month — writes `starting_balance` as the previous month's
+   ending balance **plus this month's `base_budget`**. `src/app/page.tsx` depends
+   on that definition and must not add the budget again. See the header of
+   [`db/schema.sql`](../db/schema.sql).
+3. Zeroes the accounts that reset monthly — anything whose type contains
+   `credit` or `brokerage`, matched by substring so an account typed
+   "Credit Card" is caught.
 
-1. Open Task Scheduler
-2. Create a new task
-3. Set trigger to "Monthly" on the 1st day at 12:01 AM
-4. Set action to "Start a program"
-5. Program: `cmd.exe`
-6. Arguments: `/c cd /d "C:\path\to\your\finance-app" && npm run process-monthly-snapshot`
+It deliberately does **not** re-derive balances from transactions. The API
+already decrements `accounts.balance` as each transaction is created, so the
+old `balance - spent` here subtracted the same spending twice. Non-credit
+balances now carry forward month to month, like a real bank account — you will
+notice this on the 1st, when they no longer drop.
 
-#### Using PM2
+The first ever run has no previous snapshot to read; it treats that month's
+starting balance as 0 and says so. It requires a `monthly_budgets` row for the
+current month, and fails with a clear message naming `db/seed.sql` if there
+isn't one.
 
-```bash
-pm2 start npm --name "monthly-snapshot" -- run process-monthly-snapshot
-pm2 save
-```
-
-### Manual Testing
-
-To test the script manually:
+## Running by hand
 
 ```bash
 cd finance-app
+npm run process-recurring
 npm run process-monthly-snapshot
 ```
 
-## Recurring Payments Cron Job Setup
-
-This script automatically processes recurring payments and creates transactions for due payments.
-
-### How it works
-
-The script runs daily and checks all recurring payments to see if they're due based on:
-
-- **Monthly**: Processes on the specified day of each month
-- **Weekly**: Processes on the specified day of the week (assuming day_of_month 1=Monday, 2=Tuesday, ..., 7=Sunday)
-- **Yearly**: Processes on the specified day of January each year
-
-When a payment is due, it:
-
-1. Creates a new transaction in the database
-2. Updates the associated account balance and max limit
-3. Logs the processing
-
-### Setup Cron Job
-
-#### On Linux/Mac
-
-1. Open crontab: `crontab -e`
-2. Add this line to run at 12:01 AM every day:
-   ```
-   1 0 * * * cd /path/to/your/finance-app && npm run process-recurring
-   ```
-
-#### On Windows
-
-1. Open Task Scheduler
-2. Create a new task
-3. Set trigger to "Daily" at 12:01 AM
-4. Set action to "Start a program"
-5. Program: `cmd.exe`
-6. Arguments: `/c cd /d "C:\path\to\your\finance-app" && npm run process-recurring`
-
-#### Using PM2 (recommended for production)
-
-If you're using PM2 to manage your Next.js app:
+Or inside the running stack:
 
 ```bash
-pm2 start npm --name "recurring-payments" -- run process-recurring
-pm2 save
+docker compose exec worker npm run process-recurring
 ```
 
-### Manual Testing
+Both read `DATABASE_URL` from the environment, falling back to
+`finance-app/.env.local`. A real environment variable always wins, so compose
+is unaffected.
 
-To test the script manually:
+## Tests
 
-```bash
-npm run process-recurring
-```
-
-The script file is located at `scripts/process-recurring-payments.ts`
-
-## Important Notes
-
-- **Weekly payments**: The `day_of_month` field is interpreted as day of week (1=Monday, 2=Tuesday, ..., 7=Sunday)
-- **Yearly payments**: Only process on the specified day of January
-- Ensure the database connection is properly configured
-- The script updates both transaction records and account balances automatically
+`tests/integration/recurring-payments.test.ts` and
+`tests/integration/monthly-snapshot.test.ts` run both scripts as real
+subprocesses against a throwaway database, and assert the idempotency
+guarantees above. See the root [README](../README.md#tests).

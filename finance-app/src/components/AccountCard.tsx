@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import AccountModal from "./AccountModal";
 import EditAccountModal from "./EditAccountModal";
 import ProgressBar from "./ProgressBar";
+import { isCreditAccount } from "@/lib/accountTypes";
 import { formatCurrency } from "@/lib/format";
 import type { Account } from "@/types/api";
 
@@ -26,7 +27,18 @@ const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
   const { id, balance, max } = account;
   const accountName = account.name ?? "";
   const accountType = account.type ?? "";
-  const limitUsed = max ? Math.round((Math.abs(balance) / max) * 100) : 0;
+
+  // `max` means two different things depending on the account, and the card
+  // used to render both as "N% limit used" — which is meaningless on a
+  // checking account, where `max` is cumulative income received, not a limit.
+  // Same bar, same caption slot, honest label.
+  const isCredit = isCreditAccount(accountType);
+  const percent = max ? Math.round((Math.abs(balance) / max) * 100) : 0;
+  const caption = isCredit
+    ? `${percent}% limit used`
+    : max
+      ? `${percent}% of income received still held`
+      : "No income recorded yet";
 
   return (
     <>
@@ -45,8 +57,8 @@ const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
         <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{accountType}</p>
         <h2 className="mt-4 text-xl font-semibold text-slate-900">{accountName}</h2>
         <p className="mt-3 text-sm text-slate-500">{formatCurrency(Math.abs(balance))} / {formatCurrency(max)}</p>
-        <ProgressBar className="mt-4" percent={limitUsed} gradient="blue" />
-        <p className="mt-2 text-sm text-slate-500">{limitUsed}% limit used</p>
+        <ProgressBar className="mt-4" percent={percent} gradient="blue" />
+        <p className="mt-2 text-sm text-slate-500">{caption}</p>
       </div>
 
       {/* MODALS */}

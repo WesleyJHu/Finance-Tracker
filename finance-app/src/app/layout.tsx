@@ -15,12 +15,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Finance App",
   description: "Personal Finance Tracker",
-  icons: {
-    icon: [
-      { url: "/building-columns-solid.png", type: "image/png" },
-      { url: "/favicon.ico" }
-    ],
-  },
+  // No `icons` block: this listed /building-columns-solid.png first, which has
+  // never existed in public/, so every page load 404'd before falling back.
+  // src/app/favicon.ico is picked up by Next's file convention on its own.
 };
 
 export default function RootLayout({

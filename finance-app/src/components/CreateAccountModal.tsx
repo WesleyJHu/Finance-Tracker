@@ -10,6 +10,15 @@ interface CreateAccountModalProps {
   onCreate: (account: Account) => void;
 }
 
+/**
+ * The credit limit a new account starts with.
+ *
+ * This was the literal 6500 sitting in a useState call — one person's card
+ * limit, presented to every new account of every type as if it meant
+ * something. Zero is the honest default and matches the column's.
+ */
+const DEFAULT_MAX = "0"
+
 const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   onClose,
   onCreate,
@@ -17,7 +26,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   const [accountName, setAccountName] = useState("");
   const [accountType, setAccountType] = useState("");
   const [accountBalance, setAccountBalance] = useState("0");
-  const [accountMax, setAccountMax] = useState("6500");
+  const [accountMax, setAccountMax] = useState(DEFAULT_MAX);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

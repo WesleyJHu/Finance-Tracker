@@ -12,7 +12,7 @@
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
 import { pool } from "@/lib/db"
-import { todayInAppTz, toDateString } from "@/lib/dates"
+import { isRecurringPaymentDue, todayInAppTz, toDateString } from "@/lib/dates"
 import { accountById, countTransactions, createAccount, createRecurringPayment } from "./support/fixtures"
 import { truncateAll } from "./support/database"
 import { runScript, SCRIPTS } from "./support/runScript"
@@ -221,5 +221,79 @@ describe("process-recurring-payments", () => {
       .then(() => null)
       .catch((e) => e as { code?: string })
     expect(error?.code).toBe("23505")
+  })
+})
+
+describe("process-recurring-payments: due-day selection end to end", () => {
+  it("fires exactly the payments whose day clamps to today (P0-7)", async () => {
+    // The clamp itself is unit-tested in tests/unit/dates.test.ts. This checks
+    // the script actually applies it, rather than reverting to the old
+    // `day_of_month === currentDay`, which skipped a payment on the 31st in
+    // five months of the year and anything after the 28th in February.
+    const account = await createAccount(pool, {
+      name: "Checking",
+      type: "Checking",
+      balance: 100_000,
+    })
+
+    const ALL_DAYS = Array.from({ length: 31 }, (_, i) => i + 1)
+    const idByDay = new Map<number, number>()
+    for (const day of ALL_DAYS) {
+      const payment = await createRecurringPayment(pool, {
+        amount: 1,
+        dayOfMonth: day,
+        accountId: account.id,
+        category: "Bills",
+        description: `day-${day}`,
+      })
+      idByDay.set(day, payment.id)
+    }
+
+    const run = await runScript(SCRIPTS.recurring)
+    expect(run.code, run.stderr).toBe(0)
+
+    const expected = ALL_DAYS.filter((day) => isRecurringPaymentDue(day, TODAY))
+    expect(expected.length).toBeGreaterThan(0)
+
+    const { rows } = await pool.query(
+      `SELECT recurring_payment_id FROM transactions ORDER BY recurring_payment_id`
+    )
+    const fired = rows.map((row) => row.recurring_payment_id as number).sort((a, b) => a - b)
+    expect(fired).toEqual(expected.map((day) => idByDay.get(day)!).sort((a, b) => a - b))
+
+    // One charge per firing payment, no more.
+    expect((await accountById(pool, account.id)).balance).toBe(100_000 - expected.length)
+  })
+
+  it("skips a payment with no account and still applies the rest", async () => {
+    const account = await createAccount(pool, {
+      name: "Checking",
+      type: "Checking",
+      balance: 1000,
+    })
+    const orphan = await createRecurringPayment(pool, {
+      amount: 50,
+      dayOfMonth: TODAY.day,
+      accountId: account.id,
+      category: "Bills",
+    })
+    await createRecurringPayment(pool, {
+      amount: 75,
+      dayOfMonth: TODAY.day,
+      accountId: account.id,
+      category: "Bills",
+      description: "keeps working",
+    })
+
+    // account_id is nullable on recurring_payments, so this is a state the
+    // table permits. One bad row must not stop the others.
+    await pool.query(`UPDATE recurring_payments SET account_id = NULL WHERE id = $1`, [orphan.id])
+
+    const run = await runScript(SCRIPTS.recurring)
+    expect(run.code, run.stderr).toBe(0)
+    expect(run.stderr + run.stdout).toMatch(/no account_id/i)
+
+    expect(await countTransactions(pool)).toBe(1)
+    expect((await accountById(pool, account.id)).balance).toBe(925)
   })
 })
