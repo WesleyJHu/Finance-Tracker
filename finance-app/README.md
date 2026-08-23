@@ -82,10 +82,22 @@ docker compose exec -T postgres psql -U finance -d finance < db/schema.sql
 docker compose exec -T postgres psql -U finance -d finance < db/seed.sql
 ```
 
-Three services: `postgres` (named volume), `app`, and `worker`. **The `worker`
-service is what runs the scheduled jobs** — the Dockerfile's `CMD` only starts
-the web app, so before this compose file existed nothing ran `worker.mjs` and
-the cron jobs almost certainly never fired in production. Confirm it with:
+Two services by default, `app` and `worker`, plus an optional `postgres` behind
+the `with-db` profile. **The `worker` service is what runs the scheduled jobs** —
+the Dockerfile's `CMD` only starts the web app.
+
+> An earlier version of this file claimed the cron jobs had never run in
+> production. That was wrong: the NAS has been running an `app` + `worker` pair
+> since May 2026, and the worker's logs show the daily recurring-payment job
+> firing at midnight ET every day. The claim came from the repo having no
+> compose file, not from checking the deployment.
+
+The database is normally **external to this file** — on the NAS it is the
+standalone `finance_app_db` container, which predates this compose project and
+holds the real data. That is why `postgres` is behind a profile: defining it
+unconditionally would start a second, empty database beside the real one.
+
+Confirm the worker with:
 
 ```bash
 docker compose logs worker   # expect "Worker started... (bundled scripts)"
