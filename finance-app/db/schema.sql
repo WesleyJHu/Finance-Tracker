@@ -10,6 +10,19 @@
 --     psql "$DATABASE_URL" -f db/schema.sql
 --     psql "$DATABASE_URL" -f db/seed.sql
 --
+-- Verified 2026-08-23 by cloning the live NAS database, applying
+-- 0001_integrity.sql to the clone, and diffing against a database built from
+-- this file: columns and constraints match, 31 of each, all valid.
+--
+-- Naming quirk, carried deliberately: three tables were originally created
+-- with capitalized names and later renamed, and Postgres keeps the original
+-- constraint names through a rename. So production has "Accounts_pkey",
+-- "Transactions_pkey" and "Monthly_budgets_pkey", which this file reproduces.
+-- The auto-generated NOT NULL constraint names are capitalized in production
+-- for the same reason ("Transactions_amount_not_null" and so on) and are NOT
+-- reproduced here, because naming twenty NOT NULL constraints would obscure
+-- the schema to no purpose. Nothing references them.
+--
 -- ---------------------------------------------------------------------------
 -- Domain notes — read these before changing any money column
 -- ---------------------------------------------------------------------------
@@ -92,7 +105,7 @@ CREATE TABLE public.accounts (
     balance numeric(12,2) DEFAULT 0.00,
     max numeric(12,2) DEFAULT 0 NOT NULL,
     archived boolean DEFAULT false NOT NULL,
-    CONSTRAINT accounts_pkey PRIMARY KEY (id)
+    CONSTRAINT "Accounts_pkey" PRIMARY KEY (id)
 );
 
 COMMENT ON COLUMN public.accounts.max IS
@@ -107,7 +120,7 @@ COMMENT ON COLUMN public.accounts.archived IS
 CREATE TABLE public.monthly_budgets (
     month integer NOT NULL,
     base_budget numeric(10,2) DEFAULT 0 NOT NULL,
-    CONSTRAINT monthly_budgets_pkey PRIMARY KEY (month),
+    CONSTRAINT "Monthly_budgets_pkey" PRIMARY KEY (month),
     CONSTRAINT "Month value" CHECK ((month >= 1) AND (month <= 12))
 );
 
@@ -176,7 +189,7 @@ CREATE TABLE public.transactions (
     recurring_payment_id integer,
     period_year smallint,
     period_month smallint,
-    CONSTRAINT transactions_pkey PRIMARY KEY (id),
+    CONSTRAINT "Transactions_pkey" PRIMARY KEY (id),
     -- account_id is NOT NULL, so ON DELETE SET NULL could never succeed.
     -- RESTRICT is a backstop only: the app archives accounts, never deletes them.
     CONSTRAINT transactions_account_id_fkey FOREIGN KEY (account_id)
