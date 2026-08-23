@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Modal from "./Modal";
 import { isCreditAccount as isCreditAccountType } from "@/lib/accountTypes";
 import { CATEGORIES, INCOME, displayCategory } from "@/lib/categories";
 import { todayInAppTz, toDateString } from "@/lib/dates";
@@ -108,27 +109,7 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-lg p-6 w-[90vw] max-w-md"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold">Add New Transaction</h2>
-            <p className="text-sm text-gray-500">Log a new income or expense transaction.</p>
-          </div>
-          <button
-            type="button"
-            className="text-gray-500 hover:text-gray-900"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </div>
+    <Modal onClose={onClose} size="form" title="Add New Transaction" description="Log a new income or expense transaction.">
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -244,8 +225,7 @@ const AddTransactionModal: React.FC<AddTransactionModalProps> = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

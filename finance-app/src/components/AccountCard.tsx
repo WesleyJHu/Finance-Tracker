@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import AccountModal from "./AccountModal";
 import EditAccountModal from "./EditAccountModal";
+import ProgressBar from "./ProgressBar";
 import { formatCurrency } from "@/lib/format";
 import type { Account } from "@/types/api";
 
@@ -16,19 +17,16 @@ export interface AccountCardProps {
 }
 
 const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
-  const [accountName, setAccountName] = useState(account.name ?? "");
-  const [accountType, setAccountType] = useState(account.type ?? "");
   const [isOpen, setIsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
+  // Rendered straight from props. The card used to mirror name and type into
+  // its own state, which made it a second source of truth alongside the
+  // dashboard's `accounts` and left the two able to disagree.
   const { id, balance, max } = account;
+  const accountName = account.name ?? "";
+  const accountType = account.type ?? "";
   const limitUsed = max ? Math.round((Math.abs(balance) / max) * 100) : 0;
-
-  const handleAccountUpdate = (updated: Account) => {
-    setAccountName(updated.name ?? "");
-    setAccountType(updated.type ?? "");
-    onUpdate?.(updated);
-  };
 
   return (
     <>
@@ -47,9 +45,7 @@ const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
         <p className="text-xs uppercase tracking-[0.25em] text-slate-400">{accountType}</p>
         <h2 className="mt-4 text-xl font-semibold text-slate-900">{accountName}</h2>
         <p className="mt-3 text-sm text-slate-500">{formatCurrency(Math.abs(balance))} / {formatCurrency(max)}</p>
-        <div className="mt-4 h-2 overflow-hidden rounded-full bg-slate-100">
-          <div className="h-full rounded-full bg-linear-to-r from-blue-600 to-cyan-400" style={{ width: `${Math.min(limitUsed, 100)}%` }} />
-        </div>
+        <ProgressBar className="mt-4" percent={limitUsed} gradient="blue" />
         <p className="mt-2 text-sm text-slate-500">{limitUsed}% limit used</p>
       </div>
 
@@ -69,7 +65,7 @@ const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
           balance={balance}
           max={max}
           onClose={() => setEditOpen(false)}
-          onUpdate={handleAccountUpdate}
+          onUpdate={onUpdate}
           onDelete={onDelete}
         />
       )}

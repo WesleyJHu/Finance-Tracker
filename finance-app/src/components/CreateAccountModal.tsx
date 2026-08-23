@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Modal from "./Modal";
 import { isCreditAccount as isCreditAccountType } from "@/lib/accountTypes";
 import type { Account } from "@/types/api";
 
@@ -72,27 +73,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-lg p-6 w-[90vw] max-w-md"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold">Create New Account</h2>
-            <p className="text-sm text-gray-500">Add a new account or card to track.</p>
-          </div>
-          <button
-            type="button"
-            className="text-gray-500 hover:text-gray-900"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </div>
+    <Modal onClose={onClose} size="form" title="Create New Account" description="Add a new account or card to track.">
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -177,8 +158,7 @@ const CreateAccountModal: React.FC<CreateAccountModalProps> = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 };
 

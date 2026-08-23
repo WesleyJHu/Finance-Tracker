@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from 'react';
+import Modal from './Modal';
 import { formatCurrency } from '@/lib/format';
 import { CATEGORIES, displayCategory } from '@/lib/categories';
 import type { Account, MonthlyBudget, RecurringPayment } from '@/types/api';
@@ -8,6 +9,11 @@ import type { Account, MonthlyBudget, RecurringPayment } from '@/types/api';
 interface SettingsModalProps {
   onClose: () => void;
   accounts: Account[];
+  /**
+   * Called after a change that the dashboard displays. Budget edits used to
+   * stay invisible on the dashboard until a full page reload.
+   */
+  onSaved?: () => void;
 }
 
 const monthNames = [
@@ -15,7 +21,7 @@ const monthNames = [
   'July', 'August', 'September', 'October', 'November', 'December'
 ];
 
-export default function SettingsModal({ onClose, accounts }: SettingsModalProps) {
+export default function SettingsModal({ onClose, accounts, onSaved }: SettingsModalProps) {
   const [budgets, setBudgets] = useState<MonthlyBudget[]>([]);
   const [recurringPayments, setRecurringPayments] = useState<RecurringPayment[]>([]);
   const [loading, setLoading] = useState(true);
@@ -78,6 +84,9 @@ export default function SettingsModal({ onClose, accounts }: SettingsModalProps)
       );
 
       await Promise.all(promises);
+      // Re-reads from the database, so a PATCH that silently failed shows the
+      // old value on the dashboard rather than the value we hoped for.
+      onSaved?.();
     } catch (error) {
       console.error('Error saving budgets:', error);
       alert('Error saving budgets');
@@ -188,17 +197,16 @@ export default function SettingsModal({ onClose, accounts }: SettingsModalProps)
 
   if (loading) {
     return (
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-        <div className="bg-white p-8 rounded-3xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-          <p>Loading settings...</p>
-        </div>
-      </div>
+      <Modal onClose={onClose} size="settings">
+        <p>Loading settings...</p>
+      </Modal>
     );
   }
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white p-8 rounded-3xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <Modal onClose={onClose} size="settings">
+        {/* Bespoke header: centred, no description, and a "x" close control
+            rather than the "Close" label the other five modals use. */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold text-slate-900">Settings</h2>
           <button
@@ -382,7 +390,6 @@ export default function SettingsModal({ onClose, accounts }: SettingsModalProps)
             </div>
           )}
         </section>
-      </div>
-    </div>
+    </Modal>
   );
 }

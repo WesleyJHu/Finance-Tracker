@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Modal from "./Modal";
 import { todayInAppTz } from "@/lib/dates";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { isIncome } from "@/lib/accounting";
@@ -68,27 +69,12 @@ const AccountModal: React.FC<AccountModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={onClose}
+    <Modal
+      onClose={onClose}
+      size="wide"
+      title={`${accountName} Transactions`}
+      description="All transactions for this account"
     >
-      <div
-        className="bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold">{accountName} Transactions</h2>
-            <p className="text-sm text-gray-500">All transactions for this account</p>
-          </div>
-          <button
-            type="button"
-            className="text-gray-500 hover:text-gray-900"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </div>
 
         {loading && (
           <div className="text-center py-8">
@@ -136,8 +122,7 @@ const AccountModal: React.FC<AccountModalProps> = ({
             )}
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 };
 

@@ -1,30 +1,38 @@
 "use client";
 
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import Card from '../components/AccountCard';
 import CreateAccountModal from '../components/CreateAccountModal';
 import AddTransactionModal from '../components/AddTransactionModal';
 import EditTransactionModal from '../components/EditTransactionModal';
 import SettingsModal from '../components/SettingsModal';
+import ProgressBar from '../components/ProgressBar';
 import { formatCurrency, formatDate, formatLongDate } from '@/lib/format';
 import { categoryIcon } from '@/lib/categories';
 import { isIncome } from '@/lib/accounting';
-import { todayInAppTz } from '@/lib/dates';
-import type { Account, BalanceSnapshot, MonthlyBudget, Transaction, WithAccounts } from '@/types/api';
+import { useDashboardData } from '@/hooks/useDashboardData';
+import type { Account, Transaction, WithAccounts } from '@/types/api';
 
 export default function Dashboard() {
-  const [accounts, setAccounts] = useState<Account[]>([]);
-  const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [monthlyBudget, setMonthlyBudget] = useState<MonthlyBudget | null>(null);
-  const [balanceSnapshot, setBalanceSnapshot] = useState<BalanceSnapshot | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    accounts,
+    transactions,
+    monthlyBudget,
+    balanceSnapshot,
+    loading,
+    error,
+    today,
+    setAccounts,
+    setTransactions,
+    refresh,
+  } = useDashboardData();
+
+  const { day, month, year } = today;
+
+  const [pageError, setPageError] = useState<string | null>(null);
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showTransactionModal, setShowTransactionModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
-  const [day, setDay] = useState(1);
-  const [month, setMonth] = useState(1);
-  const [year, setYear] = useState(2024);
 
   const handleAccountUpdate = (updatedAccount: Account) => {
     setAccounts(prev => prev.map(acc => acc.id === updatedAccount.id ? { ...acc, ...updatedAccount } : acc));
@@ -68,7 +76,7 @@ export default function Dashboard() {
       setTransactions((current) => current.filter((t) => t.id !== transaction.id));
       applyServerAccounts(data?.accounts);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete transaction');
+      setPageError(err instanceof Error ? err.message : 'Failed to delete transaction');
       console.error('Delete transaction failed:', err);
     }
   };
@@ -83,66 +91,6 @@ export default function Dashboard() {
     applyServerAccounts(updatedTransaction.accounts);
     setEditingTransaction(null);
   };
-
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const { month, year, day } = todayInAppTz();
-
-        setMonth(month);
-        setYear(year);
-        setDay(day);
-
-        const accountsRes = await fetch('/api/accounts');
-        if (!accountsRes.ok) throw new Error('Failed to fetch accounts');
-        // The routes serialize numerics now, so no client-side coercion.
-        const accountsData: Account[] = await accountsRes.json();
-        setAccounts(accountsData);
-
-        const transRes = await fetch(`/api/transactions?month=${month}&year=${year}`);
-        if (!transRes.ok) throw new Error('Failed to fetch transactions');
-        const transData: Transaction[] = await transRes.json();
-        setTransactions(transData);
-
-        const budgetRes = await fetch(`/api/monthly_budgets?month=${month}`);
-        if (!budgetRes.ok) throw new Error('Failed to fetch budget');
-        const budgetData = await budgetRes.json();
-        if (budgetData.length > 0) {
-          setMonthlyBudget(budgetData[0]);
-        }
-
-        // Non-fatal: a missing snapshot row is expected on the 1st of a month
-        // before the cron job runs, and it must not blank a dashboard whose
-        // accounts and transactions loaded fine.
-        try {
-          const snapshotRes = await fetch(`/api/balance_snapshot?month=${month}&year=${year}`);
-          if (!snapshotRes.ok) {
-            console.error('Failed to fetch balance snapshot', {
-              status: snapshotRes.status,
-              statusText: snapshotRes.statusText,
-            });
-          } else {
-            const snapshotData = await snapshotRes.json();
-            if (snapshotData.length > 0) {
-              setBalanceSnapshot(snapshotData[0]);
-            }
-          }
-        } catch (snapshotErr) {
-          console.error('Failed to fetch balance snapshot', snapshotErr);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'An error occurred');
-        console.error('Fetch error:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
 
   const formattedDate = formatLongDate(year, month, day);
 
@@ -185,11 +133,15 @@ export default function Dashboard() {
     );
   }
 
-  if (error) {
+  // A failed delete replaced the whole page before this refactor too. Keeping
+  // that behaviour here; replacing it with inline error UI is Phase 5.
+  const displayError = error ?? pageError;
+
+  if (displayError) {
     return (
       <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
         <div className="flex items-center justify-center h-screen">
-          <p className="text-2xl text-red-600">Error: {error}</p>
+          <p className="text-2xl text-red-600">Error: {displayError}</p>
         </div>
       </main>
     );
@@ -299,12 +251,7 @@ export default function Dashboard() {
                 <p className="text-sm text-slate-500">Spending progress</p>
                 <p className="text-sm font-semibold text-slate-900">{Math.round(spendingProgress * 100)}%</p>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                <div
-                  className="h-full rounded-full bg-linear-to-r from-sky-500 to-cyan-400"
-                  style={{ width: `${Math.round(spendingProgress * 100)}%` }}
-                />
-              </div>
+              <ProgressBar percent={Math.round(spendingProgress * 100)} />
             </div>
           ) : (
             <div className="mt-6 rounded-3xl bg-slate-50 p-4 text-center text-sm text-slate-500">
@@ -342,12 +289,10 @@ export default function Dashboard() {
                     <span className="text-sm font-semibold text-slate-900">{entry.category}</span>
                     <span className="text-sm text-slate-500">{formatCurrency(entry.amount)}</span>
                   </div>
-                  <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div
-                      className="h-full rounded-full bg-linear-to-r from-sky-500 to-cyan-400"
-                      style={{ width: Math.round((entry.amount / maxCategoryAmount) * 100) + '%' }}
-                    />
-                  </div>
+                  <ProgressBar
+                    className="mt-2"
+                    percent={Math.round((entry.amount / maxCategoryAmount) * 100)}
+                  />
                 </div>
               ))
             )}
@@ -463,6 +408,7 @@ export default function Dashboard() {
         <SettingsModal
           onClose={() => setShowSettingsModal(false)}
           accounts={accounts}
+          onSaved={refresh}
         />
       )}
     </main>

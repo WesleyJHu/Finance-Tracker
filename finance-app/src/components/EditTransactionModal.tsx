@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Modal from "./Modal";
 import { isCreditAccount as isCreditAccountType } from "@/lib/accountTypes";
 import { CATEGORIES, INCOME, displayCategory, normalizeCategory } from "@/lib/categories";
 import type { AccountOption, Transaction, WithAccounts } from "@/types/api";
@@ -104,27 +105,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
   };
 
   return (
-    <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-lg p-6 w-[90vw] max-w-md"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between mb-6">
-          <div>
-            <h2 className="text-2xl font-bold">Edit Transaction</h2>
-            <p className="text-sm text-gray-500">Update the details of your transaction.</p>
-          </div>
-          <button
-            type="button"
-            className="text-gray-500 hover:text-gray-900"
-            onClick={onClose}
-          >
-            Close
-          </button>
-        </div>
+    <Modal onClose={onClose} size="form" title="Edit Transaction" description="Update the details of your transaction.">
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -239,8 +220,7 @@ const EditTransactionModal: React.FC<EditTransactionModalProps> = ({
             </button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 };
 
