@@ -9,7 +9,13 @@ const MONTH_ABBREVIATIONS = [
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-/** The h-40 the tallest hardcoded bar used, in pixels (40 x 0.25rem x 16px). */
+/**
+ * The h-40 the tallest hardcoded bar used, in pixels (40 x 0.25rem x 16px).
+ *
+ * Still the reference scale, but the container's height is now a class
+ * (`h-40`, the same 160px) rather than an inline style, so a breakpoint can
+ * shrink it on a phone. Bars are sized as a percentage of that container.
+ */
 const MAX_BAR_PX = 160;
 /** Enough that an empty month is still a visible bar rather than a gap. */
 const MIN_BAR_PX = 8;
@@ -37,7 +43,7 @@ export default function SpendingChart({ totals, className = "" }: SpendingChartP
     // Reserves the same vertical space, so the card does not resize while the
     // request is in flight or after it fails.
     return (
-      <div className={`flex items-end ${className}`} style={{ height: MAX_BAR_PX }}>
+      <div className={`flex items-end h-40 max-md:h-28 ${className}`}>
         <p className="text-sm text-slate-500">No spending history yet.</p>
       </div>
     );
@@ -48,9 +54,13 @@ export default function SpendingChart({ totals, className = "" }: SpendingChartP
   const peak = totals.reduce((max, entry) => Math.max(max, entry.expenses), 0);
 
   return (
-    <div className={`flex items-end gap-2 ${className}`} style={{ height: MAX_BAR_PX }}>
+    <div className={`flex items-end gap-2 h-40 max-md:h-28 ${className}`}>
       {totals.map((entry) => {
-        const height =
+        // Rounded to whole pixels against the 160px reference first, then
+        // expressed as a percentage of the container. Taking the percentage
+        // straight from the ratio would drop this rounding and shift every
+        // bar by a sub-pixel against how it renders today.
+        const px =
           peak > 0
             ? Math.max(Math.round((entry.expenses / peak) * MAX_BAR_PX), MIN_BAR_PX)
             : MIN_BAR_PX;
@@ -60,7 +70,7 @@ export default function SpendingChart({ totals, className = "" }: SpendingChartP
           <div
             key={`${entry.year}-${entry.month}`}
             className="w-full rounded-xl bg-slate-800"
-            style={{ height }}
+            style={{ height: `${(px / MAX_BAR_PX) * 100}%` }}
             title={`${label}: ${formatCurrency(entry.expenses)}`}
           >
             <span className="sr-only">{`${label}: ${formatCurrency(entry.expenses)}`}</span>

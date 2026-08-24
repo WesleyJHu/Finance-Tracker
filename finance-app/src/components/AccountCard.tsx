@@ -15,9 +15,11 @@ export interface AccountCardProps {
   account: Account;
   onUpdate?: (account: Account) => void;
   onDelete?: (id: string) => void;
+  /** Sizing from the caller — the dashboard makes these carousel slides on mobile. */
+  className?: string;
 }
 
-const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
+const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete, className = "" }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
 
@@ -42,7 +44,7 @@ const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
 
   return (
     <>
-      <div className="relative rounded-3xl bg-white p-6 shadow-sm border border-slate-200 cursor-pointer" onClick={() => setIsOpen(true)}>
+      <div className={`relative rounded-3xl bg-white p-6 shadow-sm border border-slate-200 cursor-pointer ${className}`} onClick={() => setIsOpen(true)}>
         <button
           type="button"
           title="Edit account"
@@ -50,7 +52,7 @@ const Card: React.FC<AccountCardProps> = ({ account, onUpdate, onDelete }) => {
             event.stopPropagation();
             setEditOpen(true);
           }}
-          className="absolute right-3 top-3 z-10 rounded-md bg-white px-3 py-1 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-100"
+          className="absolute right-3 top-3 z-10 rounded-md bg-white px-3 py-1 text-sm font-semibold text-gray-700 shadow-sm hover:bg-gray-100 max-md:min-h-11 max-md:min-w-11 max-md:inline-flex max-md:items-center max-md:justify-center max-md:px-2"
         >
           <img src="/edit.svg" alt="Edit" className="h-4 w-4" />
         </button>

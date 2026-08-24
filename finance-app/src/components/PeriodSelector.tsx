@@ -29,6 +29,7 @@ export interface PeriodSelectorProps {
   onChange: (next: PeriodValue) => void;
   /** Today, in the app's timezone — bounds the pickers to strictly past periods. */
   today: { year: number; month: number; day: number };
+  className?: string;
 }
 
 /**
@@ -36,7 +37,12 @@ export interface PeriodSelectorProps {
  * no internal fetch, matching how page.tsx already lifts filter state to the
  * page rather than owning it in the control itself.
  */
-export default function PeriodSelector({ value, onChange, today }: PeriodSelectorProps) {
+export default function PeriodSelector({
+  value,
+  onChange,
+  today,
+  className = "",
+}: PeriodSelectorProps) {
   // Year mode excludes the current year outright (it's still in progress), but
   // month mode should still offer it whenever it has at least one elapsed
   // month — January itself doesn't count, so a January "today" excludes it too.
@@ -80,18 +86,20 @@ export default function PeriodSelector({ value, onChange, today }: PeriodSelecto
   };
 
   const pill = (active: boolean) =>
-    `rounded-full px-4 py-2 text-sm font-semibold transition ${
+    `rounded-full px-4 py-2 text-sm font-semibold transition max-md:flex-1 max-md:min-h-11 ${
       active
         ? "bg-slate-900 text-white"
         : "border border-slate-300 bg-white text-slate-700 hover:border-slate-400"
     }`;
 
+  // max-md:text-base keeps iOS Safari from auto-zooming the page on focus,
+  // which it does for any control under 16px.
   const select =
-    "rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm focus:border-slate-500 focus:outline-none";
+    "rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm focus:border-slate-500 focus:outline-none max-md:flex-1 max-md:min-w-0 max-md:min-h-11 max-md:text-base";
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      <div className="flex gap-2">
+    <div className={`flex flex-wrap items-center gap-3 ${className}`}>
+      <div className="flex gap-2 max-md:w-full">
         <button type="button" className={pill(value.mode === "month")} onClick={() => setMode("month")}>
           Month
         </button>

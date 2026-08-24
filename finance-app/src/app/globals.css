@@ -1,6 +1,17 @@
 @import "tailwindcss";
 
 /*
+ * Hides the scrollbar on the mobile account carousel without hiding overflow.
+ * Inert until something applies it, so it cannot affect the desktop layout.
+ */
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/*
  * What used to be here: the create-next-app + shadcn scaffold — a `tw-animate-css`
  * import, a `dark` custom variant, ~40 design tokens, and a full `.dark` palette.
  * No component ever referenced any of it; the app styles entirely with Tailwind

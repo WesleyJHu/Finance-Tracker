@@ -11,9 +11,12 @@ import Link from "next/link";
 export default function TabNav({
   active,
   onSettingsClick,
+  className = "",
 }: {
   active: "home" | "history";
   onSettingsClick: () => void;
+  /** Callers pass `max-md:hidden` — BottomTabBar takes over below `md`. */
+  className?: string;
 }) {
   const tabClass = (tab: "home" | "history") =>
     `text-sm font-semibold uppercase tracking-[0.35em] pb-1 border-b-2 transition ${
@@ -23,7 +26,7 @@ export default function TabNav({
     }`;
 
   return (
-    <div className="flex flex-wrap gap-8 items-center text-slate-700">
+    <div className={`flex flex-wrap gap-8 items-center text-slate-700 ${className}`}>
       <Link href="/" aria-current={active === "home" ? "page" : undefined} className={tabClass("home")}>
         Home
       </Link>

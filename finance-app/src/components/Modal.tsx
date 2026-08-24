@@ -14,13 +14,24 @@ import React, { useEffect, useId, useRef } from "react";
  * was no role="dialog", no focus trap, no Escape-to-close (the codebase had no
  * keydown listener at all), no focus restore and no scroll lock.
  */
+/*
+ * The max-md: heights are a bug fix, not a style tweak. `form` had no
+ * max-height and no overflow, and the backdrop centres the panel with the
+ * body scroll-locked — so a panel taller than the viewport was clipped at
+ * BOTH ends with no way to scroll to the submit button. AddTransactionModal
+ * is ~570px of content, which overflows a phone outright once the software
+ * keyboard is open.
+ *
+ * dvh rather than vh: mobile Safari resolves vh against the *large* viewport,
+ * so a vh-sized panel sits partly under the URL bar.
+ */
 const PANELS = {
   /** The four form modals. */
-  form: "bg-white rounded-lg p-6 w-[90vw] max-w-md",
+  form: "bg-white rounded-lg p-6 w-[90vw] max-w-md max-md:max-h-[85dvh] max-md:overflow-y-auto max-md:overscroll-contain",
   /** AccountModal's transaction list. */
-  wide: "bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto",
+  wide: "bg-white rounded-lg p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto max-md:w-[calc(100%-2rem)] max-md:max-h-[80dvh] max-md:overscroll-contain max-md:p-5",
   /** SettingsModal. */
-  settings: "bg-white p-8 rounded-3xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto",
+  settings: "bg-white p-8 rounded-3xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto max-md:max-h-[92dvh] max-md:p-5 max-md:rounded-2xl max-md:overscroll-contain",
 } as const;
 
 const FOCUSABLE = [
@@ -129,14 +140,14 @@ const Modal: React.FC<ModalProps> = ({
         onClick={(event) => event.stopPropagation()}
       >
         {title && (
-          <div className="flex items-start justify-between mb-6">
+          <div className="flex items-start justify-between mb-6 max-md:mb-4">
             <div>
-              <h2 id={titleId} className="text-2xl font-bold">{title}</h2>
+              <h2 id={titleId} className="text-2xl font-bold max-md:text-xl">{title}</h2>
               {description && <p className="text-sm text-gray-500">{description}</p>}
             </div>
             <button
               type="button"
-              className="text-gray-500 hover:text-gray-900"
+              className="text-gray-500 hover:text-gray-900 max-md:inline-flex max-md:items-center max-md:min-h-11 max-md:px-2 max-md:-mr-2"
               onClick={onClose}
             >
               {closeLabel}

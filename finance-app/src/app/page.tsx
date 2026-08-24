@@ -7,6 +7,8 @@ import AddTransactionModal from '../components/AddTransactionModal';
 import EditTransactionModal from '../components/EditTransactionModal';
 import SettingsModal from '../components/SettingsModal';
 import TabNav from '../components/TabNav';
+import BottomTabBar from '../components/BottomTabBar';
+import TransactionList from '../components/TransactionList';
 import ProgressBar from '../components/ProgressBar';
 import CategoryIcon from '../components/CategoryIcon';
 import SpendingChart from '../components/SpendingChart';
@@ -185,7 +187,7 @@ export default function Dashboard() {
   if (loading) {
     return (
       <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
-        <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-screen max-md:h-[calc(100dvh-3rem)]">
           <p className="text-2xl text-slate-600">Loading your financial data...</p>
         </div>
       </main>
@@ -198,7 +200,7 @@ export default function Dashboard() {
   if (error) {
     return (
       <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
-        <div className="flex items-center justify-center h-screen">
+        <div className="flex items-center justify-center h-screen max-md:h-[calc(100dvh-3rem)]">
           <p className="text-2xl text-red-600">Error: {error}</p>
         </div>
       </main>
@@ -207,23 +209,27 @@ export default function Dashboard() {
 
   return (
     <main className="min-h-screen bg-slate-50 p-6 sm:p-8">
-      <header className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-8">
-        <TabNav active="home" onSettingsClick={() => setShowSettingsModal(true)} />
+      <header className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between mb-8 max-md:mb-6">
+        <TabNav
+          active="home"
+          onSettingsClick={() => setShowSettingsModal(true)}
+          className="max-md:hidden"
+        />
 
-        <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3 max-md:w-full">
           <button
             type="button"
             onClick={() => setShowTransactionModal(true)}
-            className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800"
+            className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800 max-md:flex-1 max-md:justify-center max-md:min-h-11 max-md:px-4"
           >
             Add Transaction
           </button>
-          <SignOutButton />
+          <SignOutButton className="max-md:flex-1 max-md:inline-flex max-md:items-center max-md:justify-center max-md:min-h-11" />
         </div>
       </header>
 
       {pageError && (
-        <div className="mb-6 flex items-center justify-between gap-4 rounded-3xl border border-red-200 bg-red-50 px-5 py-4">
+        <div className="mb-6 flex items-center justify-between gap-4 rounded-3xl border border-red-200 bg-red-50 px-5 py-4 max-md:flex-col max-md:items-start max-md:gap-2 max-md:px-4 max-md:py-3">
           <p className="text-sm text-red-700">{pageError}</p>
           <button
             type="button"
@@ -236,12 +242,15 @@ export default function Dashboard() {
       )}
 
       <section className="mb-8">
-        <h1 className="text-4xl md:text-5xl font-bold text-slate-900 text-center">
+        <h1 className="text-4xl md:text-5xl font-bold text-slate-900 text-center max-md:text-2xl">
           Today is {formattedDate}
         </h1>
-        <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
+        <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between max-md:gap-3 max-md:mt-4">
           <div>
-            <h1 className="mt-2 text-3xl font-bold text-slate-900">Account Overview</h1>
+            {/* An <h2>: this used to be a second <h1> in the same section. The
+                classes carry the styling, and Tailwind's preflight resets
+                h1-h6 to inherit, so the tag change is visually a no-op. */}
+            <h2 className="mt-2 text-3xl font-bold text-slate-900 max-md:text-2xl">Account Overview</h2>
           </div>
           <div className="flex flex-wrap gap-3">
             {/* "Link New Account" implied a bank connection. It opens a form
@@ -249,16 +258,21 @@ export default function Dashboard() {
             <button
               type="button"
               onClick={() => setShowAccountModal(true)}
-              className="rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400"
+              className="rounded-full border border-slate-300 bg-white px-5 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 max-md:min-h-11"
             >
               Add Account
             </button>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 xl:grid-cols-4 lg:grid-cols-3 md:grid-cols-2">
+        {/* Below md this becomes a snap-scrolling carousel: `max-md:flex`
+            overrides the grid outright, and the column ladder is already
+            md:/lg:/xl:-prefixed, so it is inert on a phone. Flex's default
+            align-items: stretch keeps every card the same height, so the row
+            is a constant height no matter how many accounts there are. */}
+        <div className="mt-6 grid gap-4 xl:grid-cols-4 lg:grid-cols-3 md:grid-cols-2 max-md:flex max-md:snap-x max-md:snap-mandatory max-md:overflow-x-auto max-md:no-scrollbar max-md:pb-1">
           {accounts.length === 0 ? (
-            <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
+            <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200 max-md:w-full">
               <p className="text-slate-500">No accounts found. Add one to get started.</p>
             </div>
           ) : (
@@ -268,14 +282,17 @@ export default function Dashboard() {
                 account={account}
                 onUpdate={handleAccountUpdate}
                 onDelete={handleAccountDelete}
+                className="max-md:w-[78vw] max-md:max-w-80 max-md:shrink-0 max-md:snap-start"
               />
             ))
           )}
 
+          {/* Hidden on mobile: it would sit behind every swipe. The header's
+              Add Account button stays put and is always visible instead. */}
           <button
             type="button"
             onClick={() => setShowAccountModal(true)}
-            className="flex min-h-44 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-slate-400 hover:text-slate-800"
+            className="flex min-h-44 flex-col items-center justify-center rounded-3xl border border-dashed border-slate-300 bg-white text-slate-500 transition hover:border-slate-400 hover:text-slate-800 max-md:hidden"
           >
             <span className="mb-3 inline-flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-2xl">+</span>
             <span className="text-sm font-semibold">Add Account</span>
@@ -283,34 +300,34 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="grid gap-6 xl:grid-cols-[1.3fr_1fr_1fr_1fr] mb-8 py-4">
-        <div className="rounded-3xl bg-slate-950 p-6 text-white shadow-lg shadow-slate-200/10">
+      <section className="grid gap-6 xl:grid-cols-[1.3fr_1fr_1fr_1fr] mb-8 py-4 max-md:gap-4 max-md:py-0">
+        <div className="rounded-3xl bg-slate-950 p-6 text-white shadow-lg shadow-slate-200/10 max-md:p-5">
           <div className="flex items-center justify-between gap-4">
             <div>
-              <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Total Monthly Spending</p>
-              <p className="mt-4 text-4xl font-bold">{formatCurrency(totalExpenses)}</p>
+              <p className="text-sm uppercase tracking-[0.25em] text-slate-400 max-md:tracking-[0.15em]">Total Monthly Spending</p>
+              <p className="mt-4 text-4xl font-bold max-md:text-3xl">{formatCurrency(totalExpenses)}</p>
             </div>
           </div>
-          <SpendingChart className="mt-8" totals={monthlyTotals} />
+          <SpendingChart className="mt-8 max-md:mt-6" totals={monthlyTotals} />
           <p className="mt-6 text-sm text-slate-400">Daily average: {formatCurrency(dailyAverage)}</p>
         </div>
 
-        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
-          <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Remaining Budget</p>
-          <div className="mt-5 flex items-center justify-between gap-4">
+        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200 max-md:p-5">
+          <p className="text-sm uppercase tracking-[0.25em] text-slate-500 max-md:tracking-[0.15em]">Remaining Budget</p>
+          <div className="mt-5 flex items-center justify-between gap-4 max-md:flex-col max-md:items-start max-md:gap-3">
             <div>
-              <p className="text-4xl font-bold text-slate-900">{formatCurrency(remainingBudget)}</p>
+              <p className="text-4xl font-bold text-slate-900 max-md:text-3xl">{formatCurrency(remainingBudget)}</p>
               <p className="mt-3 text-sm text-slate-500">Budget + income - spending</p>
             </div>
             {/* Said "Updated" whenever a budget row existed, which told you
                 nothing. The figure above is only trustworthy once the monthly
                 job has written this month's snapshot; say which it is. */}
             {!monthlyBudget ? (
-              <div className="rounded-3xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600">No budget</div>
+              <div className="rounded-3xl bg-slate-100 px-4 py-3 text-sm font-semibold text-slate-600 max-md:px-3 max-md:py-2">No budget</div>
             ) : balanceSnapshot ? (
-              <div className="rounded-3xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">Up to date</div>
+              <div className="rounded-3xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 max-md:px-3 max-md:py-2">Up to date</div>
             ) : (
-              <div className="rounded-3xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700">No carryover</div>
+              <div className="rounded-3xl bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-700 max-md:px-3 max-md:py-2">No carryover</div>
             )}
           </div>
           {monthlyBudget ? (
@@ -322,17 +339,17 @@ export default function Dashboard() {
               <ProgressBar percent={Math.round(spendingProgress * 100)} />
             </div>
           ) : (
-            <div className="mt-6 rounded-3xl bg-slate-50 p-4 text-center text-sm text-slate-500">
+            <div className="mt-6 rounded-3xl bg-slate-50 p-4 text-center text-sm text-slate-500 max-md:p-3">
               No budget data available
             </div>
           )}
         </div>
 
-        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
-          <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Monthly Net Income</p>
-          <div className="mt-5 flex items-center justify-between gap-4">
+        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200 max-md:p-5">
+          <p className="text-sm uppercase tracking-[0.25em] text-slate-500 max-md:tracking-[0.15em]">Monthly Net Income</p>
+          <div className="mt-5 flex items-center justify-between gap-4 max-md:flex-col max-md:items-start max-md:gap-3">
             <div>
-              <p className="text-4xl font-bold text-slate-900">{formatCurrency(totalIncome)}</p>
+              <p className="text-4xl font-bold text-slate-900 max-md:text-3xl">{formatCurrency(totalIncome)}</p>
               {/* Was the bare words "Savings rate" under the income figure,
                   with no rate anywhere. */}
               <p className="mt-3 text-sm text-slate-500">
@@ -342,7 +359,7 @@ export default function Dashboard() {
               </p>
             </div>
             <div
-              className={`rounded-3xl px-4 py-3 text-sm font-semibold ${
+              className={`rounded-3xl px-4 py-3 text-sm font-semibold max-md:px-3 max-md:py-2 ${
                 incomeTrend === 'Up'
                   ? 'bg-emerald-50 text-emerald-700'
                   : incomeTrend === 'Down'
@@ -354,17 +371,17 @@ export default function Dashboard() {
               {incomeTrend}
             </div>
           </div>
-          <div className="mt-6 rounded-3xl bg-slate-50 p-4 text-center text-sm text-slate-500">
+          <div className="mt-6 rounded-3xl bg-slate-50 p-4 text-center text-sm text-slate-500 max-md:p-3">
             {monthlyBudget ? `${formatCurrency(monthlyBudget.base_budget)} base budget` : 'No budget data available'}
           </div>
         </div>
 
-        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
+        <div className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200 max-md:p-5">
           <div className="flex items-center justify-between">
-            <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Spending Categories</p>
+            <p className="text-sm uppercase tracking-[0.25em] text-slate-500 max-md:tracking-[0.15em]">Spending Categories</p>
             <p className="text-sm font-semibold text-slate-900">{formatCurrency(totalExpenses)}</p>
           </div>
-          <div className="mt-6 space-y-5">
+          <div className="mt-6 space-y-5 max-md:space-y-4">
             {sortedCategories.length === 0 ? (
               <p className="text-sm text-slate-500">No category spend data yet.</p>
             ) : (
@@ -385,18 +402,18 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+      <section className="rounded-3xl bg-white p-6 shadow-sm border border-slate-200 max-md:p-4">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6 max-md:gap-3 max-md:mb-4">
           <div>
-            <p className="text-sm uppercase tracking-[0.25em] text-slate-500">Transaction History</p>
-            <h2 className="mt-2 text-2xl font-semibold text-slate-900">Latest activity</h2>
+            <p className="text-sm uppercase tracking-[0.25em] text-slate-500 max-md:tracking-[0.15em]">Transaction History</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900 max-md:text-xl">Latest activity</h2>
           </div>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-3 max-md:w-full">
             <button
               type="button"
               onClick={() => setShowFilters((open) => !open)}
               aria-expanded={showFilters}
-              className={`rounded-full border px-4 py-2 text-sm font-semibold transition ${
+              className={`rounded-full border px-4 py-2 text-sm font-semibold transition max-md:flex-1 max-md:min-h-11 ${
                 filtersActive
                   ? 'border-slate-900 bg-slate-900 text-white hover:bg-slate-800'
                   : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400'
@@ -404,10 +421,11 @@ export default function Dashboard() {
             >
               {filtersActive ? `Filter (${filteredTransactions.length})` : 'Filter'}
             </button>
+            {/* Hidden on mobile: the header already carries this same button. */}
             <button
               type="button"
               onClick={() => setShowTransactionModal(true)}
-              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800"
+              className="inline-flex items-center gap-2 rounded-full bg-slate-900 px-5 py-3 text-sm font-semibold text-white shadow-lg shadow-slate-200/50 transition hover:bg-slate-800 max-md:hidden"
             >
               Add Transaction
             </button>
@@ -415,7 +433,7 @@ export default function Dashboard() {
         </div>
 
         {showFilters && (
-          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end">
+          <div className="mb-6 flex flex-col gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:flex-row sm:items-end max-md:p-3 max-md:gap-3">
             <div className="flex-1">
               <label htmlFor="filter-category" className="block text-sm font-medium text-slate-700 mb-1">
                 Category
@@ -424,7 +442,7 @@ export default function Dashboard() {
                 id="filter-category"
                 value={categoryFilter}
                 onChange={(event) => setCategoryFilter(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm focus:border-slate-500 focus:outline-none max-md:text-base max-md:min-h-11"
               >
                 <option value={ALL}>All categories</option>
                 {presentCategories.map((category) => (
@@ -442,7 +460,7 @@ export default function Dashboard() {
                 id="filter-account"
                 value={accountFilter}
                 onChange={(event) => setAccountFilter(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm focus:border-slate-500 focus:outline-none"
+                className="w-full rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm focus:border-slate-500 focus:outline-none max-md:text-base max-md:min-h-11"
               >
                 <option value={ALL}>All accounts</option>
                 {accounts.map((account) => (
@@ -459,14 +477,29 @@ export default function Dashboard() {
                 setAccountFilter(ALL);
               }}
               disabled={!filtersActive}
-              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-50 max-md:w-full max-md:min-h-11"
             >
               Clear
             </button>
           </div>
         )}
 
-        <div className="overflow-x-auto">
+        {/* Below md the table is replaced by stacked cards — six columns only
+            scrolled sideways on a phone, hiding the amount and date. */}
+        <TransactionList
+          className="md:hidden"
+          transactions={filteredTransactions.toReversed()}
+          accountNameById={accountNameById}
+          emptyMessage={
+            transactions.length === 0
+              ? 'No transactions this month.'
+              : 'No transactions match these filters.'
+          }
+          onEdit={setEditingTransaction}
+          onDelete={handleDeleteTransaction}
+        />
+
+        <div className="overflow-x-auto max-md:hidden">
           <table className="min-w-full border-collapse text-left">
             <thead>
               <tr className="text-sm uppercase tracking-[0.2em] text-slate-500">
@@ -566,6 +599,10 @@ export default function Dashboard() {
           onSaved={refresh}
         />
       )}
+
+      {/* Clears the fixed bottom bar so the last card is never behind it. */}
+      <div aria-hidden="true" className="md:hidden h-[calc(env(safe-area-inset-bottom)+4rem)]" />
+      <BottomTabBar active="home" onSettingsClick={() => setShowSettingsModal(true)} />
     </main>
   );
 }

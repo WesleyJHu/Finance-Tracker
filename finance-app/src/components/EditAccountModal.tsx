@@ -185,10 +185,10 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
                 Archive this account? It will be hidden everywhere, but its
                 transactions stay in your history and still count toward monthly totals.
               </p>
-              <div className="mt-3 flex gap-3">
+              <div className="mt-3 flex gap-3 max-md:flex-col">
                 <button
                   type="button"
-                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60 max-md:min-h-11"
                   onClick={handleArchive}
                   disabled={loading}
                 >
@@ -196,7 +196,7 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
                 </button>
                 <button
                   type="button"
-                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                  className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 max-md:min-h-11"
                   onClick={() => setConfirmingArchive(false)}
                   disabled={loading}
                 >
@@ -206,21 +206,24 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
             </div>
           )}
 
-          <div className="flex justify-between gap-3">
+          {/* On mobile this stacks: [Cancel | Save] first, then a full-width
+              Archive last — the destructive action furthest from the thumb. */}
+          <div className="flex justify-between gap-3 max-md:flex-col max-md:gap-3">
             <button
               type="button"
               title="Archive account"
               aria-label="Archive account"
-              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+              className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60 max-md:order-last max-md:w-full max-md:min-h-11 max-md:inline-flex max-md:items-center max-md:justify-center max-md:gap-2"
               onClick={() => setConfirmingArchive(true)}
               disabled={loading || confirmingArchive}
             >
               <img src="/delete.svg" alt="Archive" className="h-4 w-4" />
+              <span className="md:hidden">Archive account</span>
             </button>
-            <div className="flex gap-3">
+            <div className="flex gap-3 max-md:w-full">
               <button
                 type="button"
-                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 max-md:flex-1 max-md:min-h-11"
                 onClick={onClose}
                 disabled={loading}
               >
@@ -228,7 +231,7 @@ const EditAccountModal: React.FC<EditAccountModalProps> = ({
               </button>
               <button
                 type="submit"
-                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 max-md:flex-1 max-md:min-h-11"
                 disabled={loading}
               >
                 {loading ? "Saving..." : "Save changes"}

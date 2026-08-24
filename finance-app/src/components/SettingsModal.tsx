@@ -215,12 +215,12 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
     <Modal onClose={onClose} size="settings">
         {/* Bespoke header: centred, no description, and a "x" close control
             rather than the "Close" label the other five modals use. */}
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-slate-900">Settings</h2>
+        <div className="flex items-center justify-between mb-6 max-md:mb-4">
+          <h2 className="text-2xl font-bold text-slate-900 max-md:text-xl">Settings</h2>
           <button
             onClick={onClose}
             aria-label="Close settings"
-            className="text-slate-500 hover:text-slate-700 text-2xl"
+            className="text-slate-500 hover:text-slate-700 text-2xl max-md:inline-flex max-md:items-center max-md:justify-center max-md:min-h-11 max-md:min-w-11"
           >
             ×
           </button>
@@ -234,15 +234,17 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
 
         {/* Monthly Budgets Section */}
         <section className="mb-8">
-          <h3 className="text-xl font-semibold text-slate-900 mb-4">Monthly Budgets</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <h3 className="text-xl font-semibold text-slate-900 mb-4 max-md:text-lg">Monthly Budgets</h3>
+          {/* Two columns on a phone: twelve stacked cards was ~1300px of
+              scroll before the recurring-payments section came into view. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-md:grid-cols-2">
             {Array.from({ length: 12 }, (_, i) => i + 1).map(month => {
               const budget = budgets.find(b => b.month === month);
               return (
-                <div key={month} className="p-4 border border-slate-200 rounded-lg">
+                <div key={month} className="p-4 border border-slate-200 rounded-lg max-md:p-3">
                   <label
                     htmlFor={`budget-month-${month}`}
-                    className="block text-sm font-medium text-slate-700 mb-2"
+                    className="block text-sm font-medium text-slate-700 mb-2 max-md:mb-1"
                   >
                     {monthNames[month - 1]}
                   </label>
@@ -252,17 +254,17 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
                     step="0.01"
                     value={budget?.base_budget ?? 0}
                     onChange={(e) => handleBudgetChange(month, e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-slate-500 max-md:px-2 max-md:min-h-11"
                   />
                 </div>
               );
             })}
           </div>
-          <div className="mt-4 flex items-center gap-3">
+          <div className="mt-4 flex items-center gap-3 max-md:flex-col max-md:items-stretch">
             <button
               onClick={handleSaveBudgets}
               disabled={saving}
-              className="px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50"
+              className="px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 max-md:w-full max-md:min-h-11"
             >
               {saving ? 'Saving...' : 'Save Budgets'}
             </button>
@@ -273,14 +275,14 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
 
         {/* Recurring Payments Section */}
         <section>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-xl font-semibold text-slate-900">Recurring Payments</h3>
+          <div className="flex items-center justify-between mb-4 max-md:flex-col max-md:items-start max-md:gap-3">
+            <h3 className="text-xl font-semibold text-slate-900 max-md:text-lg">Recurring Payments</h3>
             <button
               onClick={() => {
                 setRecurringError(null);
                 setShowAddRecurring(true);
               }}
-              className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800"
+              className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 max-md:w-full max-md:min-h-11"
             >
               Add Recurring Payment
             </button>
@@ -294,8 +296,8 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
 
           <div className="space-y-4">
             {recurringPayments.map(payment => (
-              <div key={payment.id} className="p-4 border border-slate-200 rounded-lg">
-                <div className="flex items-center justify-between">
+              <div key={payment.id} className="p-4 border border-slate-200 rounded-lg max-md:p-3">
+                <div className="flex items-center justify-between max-md:flex-col max-md:items-start max-md:gap-3">
                   <div>
                     <p className="font-medium">{payment.description || payment.category}</p>
                     <p className="text-sm text-slate-500">
@@ -305,22 +307,24 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
                       Account: {accounts.find(a => a.id === payment.account_id)?.name || 'Unknown'}
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex gap-2 max-md:w-full">
                     <button
                       onClick={() => startEditRecurring(payment)}
                       title="Edit recurring payment"
                       aria-label="Edit recurring payment"
-                      className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                      className="px-3 py-1 text-sm bg-blue-100 text-blue-700 rounded hover:bg-blue-200 max-md:flex-1 max-md:min-h-11 max-md:inline-flex max-md:items-center max-md:justify-center max-md:gap-2"
                     >
                       <img src="/edit.svg" alt="Edit" className="h-4 w-4" />
+                      <span className="md:hidden">Edit</span>
                     </button>
                     <button
                       onClick={() => setConfirmingDelete(payment.id)}
                       title="Delete recurring payment"
                       aria-label="Delete recurring payment"
-                      className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200"
+                      className="px-3 py-1 text-sm bg-red-100 text-red-700 rounded hover:bg-red-200 max-md:flex-1 max-md:min-h-11 max-md:inline-flex max-md:items-center max-md:justify-center max-md:gap-2"
                     >
                       <img src="/delete-black.svg" alt="Delete" className="h-4 w-4" />
+                      <span className="md:hidden">Delete</span>
                     </button>
                   </div>
                 </div>
@@ -331,18 +335,18 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
                       Delete this recurring payment? Transactions it has already
                       created stay in your history.
                     </p>
-                    <div className="mt-3 flex gap-3">
+                    <div className="mt-3 flex gap-3 max-md:flex-col">
                       <button
                         type="button"
                         onClick={() => handleDeleteRecurring(payment.id)}
-                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700"
+                        className="rounded-lg bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 max-md:min-h-11"
                       >
                         Delete payment
                       </button>
                       <button
                         type="button"
                         onClick={() => setConfirmingDelete(null)}
-                        className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100"
+                        className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 max-md:min-h-11"
                       >
                         Keep payment
                       </button>
@@ -357,7 +361,7 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
             /* A real <form>, so the `required` attributes on these five fields
                actually block submission. They were inert while the submit
                button was a bare onClick handler outside any form. */
-            <form onSubmit={submitRecurring} className="mt-6 p-4 border border-slate-200 rounded-lg">
+            <form onSubmit={submitRecurring} className="mt-6 p-4 border border-slate-200 rounded-lg max-md:p-3">
               <h4 className="text-lg font-medium mb-4">
                 {editingRecurring ? 'Edit Recurring Payment' : 'Add Recurring Payment'}
               </h4>
@@ -434,17 +438,17 @@ export default function SettingsModal({ onClose, accounts, onSaved }: SettingsMo
                   />
                 </div>
               </div>
-              <div className="flex gap-2 mt-4">
+              <div className="flex gap-2 mt-4 max-md:flex-col">
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800"
+                  className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 max-md:w-full max-md:min-h-11"
                 >
                   {editingRecurring ? 'Update' : 'Add'}
                 </button>
                 <button
                   type="button"
                   onClick={cancelRecurring}
-                  className="px-4 py-2 bg-slate-300 text-slate-700 rounded-lg hover:bg-slate-400"
+                  className="px-4 py-2 bg-slate-300 text-slate-700 rounded-lg hover:bg-slate-400 max-md:w-full max-md:min-h-11"
                 >
                   Cancel
                 </button>

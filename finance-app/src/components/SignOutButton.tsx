@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
  * Renders nothing when auth is switched off, so the development setup does not
  * show a control that cannot do anything.
  */
-export default function SignOutButton() {
+export default function SignOutButton({ className = "" }: { className?: string } = {}) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
@@ -31,7 +31,7 @@ export default function SignOutButton() {
       type="button"
       onClick={signOut}
       disabled={loading}
-      className="rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60"
+      className={`rounded-full border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
     >
       {loading ? "Signing out..." : "Sign out"}
     </button>

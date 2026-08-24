@@ -101,7 +101,7 @@ const AccountModal: React.FC<AccountModalProps> = ({
                 {transactions.map((tx) => (
                   <div
                     key={tx.id}
-                    className="flex justify-between items-center p-4 bg-gray-50 rounded-lg"
+                    className="flex justify-between items-center p-4 bg-gray-50 rounded-lg max-md:p-3"
                   >
                     <div className="flex-1">
                       <p className="font-semibold text-gray-800">
