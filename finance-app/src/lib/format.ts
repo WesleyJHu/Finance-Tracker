@@ -78,3 +78,20 @@ export function formatLongDate(year: number, month: number, day: number): string
     day: "numeric",
   }).format(new Date(Date.UTC(year, month - 1, day)))
 }
+
+/**
+ * A 1-indexed month and a year as `"July 2026"`.
+ *
+ * `timeZone: "UTC"` is load-bearing, not decoration. Date.UTC(2026, 6, 1) is
+ * midnight UTC on July 1st, which is 20:00 on June *30th* in ET — so
+ * formatting it in the viewer's zone renders the previous month. The History
+ * tab's heading did exactly that: picking July labelled the page "June" while
+ * correctly showing July's transactions.
+ */
+export function formatMonthYear(year: number, month: number): string {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "UTC",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(Date.UTC(year, month - 1, 1)))
+}

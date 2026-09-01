@@ -9,7 +9,7 @@ import ProgressBar from "../../components/ProgressBar";
 import CategoryIcon from "../../components/CategoryIcon";
 import SignOutButton from "../../components/SignOutButton";
 import PeriodSelector, { type PeriodValue } from "../../components/PeriodSelector";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, formatMonthYear } from "@/lib/format";
 import { displayCategory } from "@/lib/categories";
 import { isIncome } from "@/lib/accounting";
 import { todayInAppTz, previousMonth } from "@/lib/dates";
@@ -72,9 +72,7 @@ export default function History() {
 
   const periodLabel =
     period.mode === "month"
-      ? new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" }).format(
-          new Date(Date.UTC(period.year, period.month - 1, 1))
-        )
+      ? formatMonthYear(period.year, period.month)
       : String(period.year);
 
   if (loading) {

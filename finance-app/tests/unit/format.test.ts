@@ -4,7 +4,7 @@
  * transaction rendered as two different dates in two places.
  */
 import { describe, expect, it } from "vitest"
-import { formatCurrency, formatDate, formatLongDate } from "@/lib/format"
+import { formatCurrency, formatDate, formatLongDate, formatMonthYear } from "@/lib/format"
 
 describe("formatCurrency", () => {
   it("renders USD with two decimals", () => {
@@ -63,5 +63,25 @@ describe("formatLongDate", () => {
 
   it("takes a 1-indexed month", () => {
     expect(formatLongDate(2026, 12, 25)).toContain("December")
+  })
+})
+
+describe("formatMonthYear", () => {
+  it("does not slip to the previous month in a behind-UTC timezone", () => {
+    // The History heading built this inline without timeZone: "UTC". Date.UTC
+    // for the 1st is 20:00 on the LAST day of the previous month in ET, so
+    // picking July labelled the page "June 2026" over July's transactions.
+    expect(formatMonthYear(2026, 7)).toBe("July 2026")
+  })
+
+  it("takes a 1-indexed month across the whole year", () => {
+    expect(formatMonthYear(2026, 1)).toBe("January 2026")
+    expect(formatMonthYear(2026, 12)).toBe("December 2026")
+  })
+
+  it("does not roll the year over at either edge", () => {
+    // January is where an off-by-one would also corrupt the year.
+    expect(formatMonthYear(2026, 1)).not.toContain("2025")
+    expect(formatMonthYear(2026, 12)).not.toContain("2027")
   })
 })
