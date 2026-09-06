@@ -158,12 +158,16 @@ export default function Dashboard() {
         && (entry.month === (month === 1 ? 12 : month - 1))
     );
     if (!previous) return 'Stable';
-    // A 2% band, so ordinary variation does not read as a trend.
-    const threshold = Math.max(previous.income * 0.02, 1);
+    // A 2% band, so ordinary variation does not read as a trend. The percentage
+    // is taken against the month's total available funds (base budget + income),
+    // not income alone, so a small swing measured against a large budget does
+    // not register as a trend.
+    const baseBudget = monthlyBudget?.base_budget ?? 0;
+    const threshold = Math.max((previous.income + baseBudget) * 0.02, 1);
     if (totalIncome > previous.income + threshold) return 'Up';
     if (totalIncome < previous.income - threshold) return 'Down';
     return 'Stable';
-  }, [monthlyTotals, totalIncome, month, year]);
+  }, [monthlyTotals, totalIncome, month, year, monthlyBudget]);
 
   const filteredTransactions = useMemo(
     () =>
