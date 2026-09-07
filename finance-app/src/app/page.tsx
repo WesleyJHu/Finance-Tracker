@@ -144,10 +144,12 @@ export default function Dashboard() {
   // other way and the month's entire spend being displayed as a daily figure.
   const dailyAverage = day > 0 ? totalExpenses / day : 0;
 
-  // Savings rate, which the card labelled but never showed: the share of this
-  // month's income that has not been spent. Undefined with no income, rather
-  // than a division by zero rendered as NaN or Infinity.
-  const savingsRate = totalIncome > 0 ? (totalIncome - totalExpenses) / totalIncome : null;
+  // Savings rate, which the card labelled but never showed: this month's
+  // spending as a share of the funds available to it (base budget + income),
+  // not income alone. Undefined when there are no available funds, rather than
+  // a division by zero rendered as NaN or Infinity.
+  const availableFunds = (monthlyBudget?.base_budget ?? 0) + totalIncome;
+  const savingsRate = availableFunds > 0 ? totalExpenses / availableFunds : null;
 
   // "Stable" was a hardcoded string. Compare this month's income with last
   // month's, from the same history the chart uses.
@@ -358,7 +360,7 @@ export default function Dashboard() {
                   with no rate anywhere. */}
               <p className="mt-3 text-sm text-slate-500">
                 {savingsRate === null
-                  ? 'Savings rate: no income yet'
+                  ? 'Savings rate: no available funds yet'
                   : `Savings rate: ${Math.round(savingsRate * 100)}%`}
               </p>
             </div>
