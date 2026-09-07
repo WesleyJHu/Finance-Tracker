@@ -8,8 +8,9 @@ import { afterAll, beforeEach, describe, expect, it } from "vitest"
 import { NextRequest } from "next/server"
 import { pool } from "@/lib/db"
 import { GET, PATCH } from "@/app/api/monthly_budgets/route"
-import { createBudget } from "./support/fixtures"
+import { createBudget, createSnapshot } from "./support/fixtures"
 import { truncateAll } from "./support/database"
+import { previousMonth, todayInAppTz } from "@/lib/dates"
 
 function patch(body: unknown) {
   return PATCH(
@@ -70,5 +71,85 @@ describe("PATCH /api/monthly_budgets", () => {
   it("rejects a missing budget rather than defaulting it", async () => {
     expect((await patch({ month: 5 })).status).toBe(400)
     expect((await patch({ base_budget: 100 })).status).toBe(400)
+  })
+})
+
+/**
+ * `monthly_balance_snapshot.starting_balance` is defined as the previous
+ * month's ending balance plus this month's base budget, and the dashboard's
+ * Remaining Budget reads it directly. Only the snapshot job wrote it, at
+ * midnight on the 1st, so entering a base budget any time after that left
+ * Remaining Budget showing the old figure — the budget looked ignored.
+ */
+describe("PATCH /api/monthly_budgets keeps this month's snapshot in step", () => {
+  const today = todayInAppTz()
+  const previous = previousMonth({ year: today.year, month: today.month })
+
+  async function startingBalanceFor(month: number, year: number) {
+    const { rows } = await pool.query(
+      `SELECT starting_balance FROM monthly_balance_snapshot WHERE month = $1 AND year = $2`,
+      [month, year]
+    )
+    return rows.length === 0 ? null : Number(rows[0].starting_balance)
+  }
+
+  it("shifts an existing snapshot by the change in budget", async () => {
+    await createBudget(pool, today.month, 100)
+    // 400 carried over from last month plus the 100 budget.
+    await createSnapshot(pool, {
+      month: today.month,
+      year: today.year,
+      startingBalance: 500,
+    })
+
+    await patch({ month: today.month, base_budget: 300 })
+
+    expect(await startingBalanceFor(today.month, today.year)).toBe(700)
+  })
+
+  it("shifts downwards too", async () => {
+    await createBudget(pool, today.month, 300)
+    await createSnapshot(pool, {
+      month: today.month,
+      year: today.year,
+      startingBalance: 700,
+    })
+
+    await patch({ month: today.month, base_budget: 100 })
+
+    expect(await startingBalanceFor(today.month, today.year)).toBe(500)
+  })
+
+  it("opens the month when the job has not run yet, carrying the previous ending balance", async () => {
+    await createSnapshot(pool, {
+      month: previous.month,
+      year: previous.year,
+      startingBalance: 0,
+      endingBalance: 400,
+    })
+
+    await patch({ month: today.month, base_budget: 100 })
+
+    expect(await startingBalanceFor(today.month, today.year)).toBe(500)
+  })
+
+  it("treats a previous month that was never closed out as zero carryover", async () => {
+    await patch({ month: today.month, base_budget: 100 })
+
+    expect(await startingBalanceFor(today.month, today.year)).toBe(100)
+  })
+
+  it("leaves other months' snapshots alone", async () => {
+    await createSnapshot(pool, {
+      month: today.month,
+      year: today.year,
+      startingBalance: 500,
+    })
+
+    // A different month, edited from the settings grid.
+    const otherMonth = today.month === 12 ? 11 : today.month + 1
+    await patch({ month: otherMonth, base_budget: 9999 })
+
+    expect(await startingBalanceFor(today.month, today.year)).toBe(500)
   })
 })

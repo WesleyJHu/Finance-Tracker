@@ -130,13 +130,28 @@ export default function Dashboard() {
     .map(([category, amount]) => ({ category, amount }));
 
   const maxCategoryAmount = sortedCategories.reduce((max, entry) => Math.max(max, entry.amount), 0) || 1;
-  // starting_balance already includes this month's base_budget — the snapshot
-  // script writes it as (previous month's ending balance + base_budget). Adding
-  // base_budget again here inflated Remaining Budget by a full month's budget.
-  // See the header of db/schema.sql.
-  const budgetCapacity = Number(balanceSnapshot?.starting_balance ?? 0);
-  const spendingProgress = (budgetCapacity + totalIncome) > 0 ? Math.min(totalExpenses / (budgetCapacity + totalIncome), 1) : 0;
-  const remainingBudget = budgetCapacity - totalExpenses + totalIncome;
+  const baseBudget = monthlyBudget?.base_budget ?? 0;
+
+  // What this month has to spend, before any of it is spent.
+  //
+  // Normally the snapshot: starting_balance already includes this month's
+  // base_budget — the snapshot script writes it as (previous month's ending
+  // balance + base_budget). Adding base_budget on top of it inflated Remaining
+  // Budget by a full month's budget. See the header of db/schema.sql.
+  //
+  // With no snapshot for the month there is no carryover to know, but the
+  // budget is still real. Falling back to 0 meant a $100 budget with $10 spent
+  // showed Remaining Budget as -$10: the budget was simply missing from the
+  // sum until the snapshot job next ran.
+  const budgetCapacity = balanceSnapshot
+    ? Number(balanceSnapshot.starting_balance)
+    : baseBudget;
+
+  // Everything available this month, before spending: carried-over balance and
+  // budget, plus income received since.
+  const availableFunds = budgetCapacity + totalIncome;
+  const spendingProgress = availableFunds > 0 ? Math.min(totalExpenses / availableFunds, 1) : 0;
+  const remainingBudget = availableFunds - totalExpenses;
   const accountNameById = Object.fromEntries(accounts.map((account) => [account.id, account.name]));
 
   // `day` comes from todayInAppTz(), which always returns 1-31, so this can
@@ -144,12 +159,15 @@ export default function Dashboard() {
   // other way and the month's entire spend being displayed as a daily figure.
   const dailyAverage = day > 0 ? totalExpenses / day : 0;
 
-  // Savings rate, which the card labelled but never showed: this month's
-  // spending as a share of the funds available to it (base budget + income),
-  // not income alone. Undefined when there are no available funds, rather than
-  // a division by zero rendered as NaN or Infinity.
-  const availableFunds = (monthlyBudget?.base_budget ?? 0) + totalIncome;
-  const savingsRate = availableFunds > 0 ? totalExpenses / availableFunds : null;
+  // Savings rate, which the card labelled but never showed: the share of this
+  // month's available funds (budget and carryover plus income, not income
+  // alone) that has not been spent. Undefined when there are no available
+  // funds, rather than a division by zero rendered as NaN or Infinity.
+  //
+  // Clamped at 0 so overspending reads as 0%, not a negative savings rate.
+  const savingsRate = availableFunds > 0
+    ? Math.max(1 - totalExpenses / availableFunds, 0)
+    : null;
 
   // "Stable" was a hardcoded string. Compare this month's income with last
   // month's, from the same history the chart uses.
@@ -164,12 +182,11 @@ export default function Dashboard() {
     // is taken against the month's total available funds (base budget + income),
     // not income alone, so a small swing measured against a large budget does
     // not register as a trend.
-    const baseBudget = monthlyBudget?.base_budget ?? 0;
     const threshold = Math.max((previous.income + baseBudget) * 0.02, 1);
     if (totalIncome > previous.income + threshold) return 'Up';
     if (totalIncome < previous.income - threshold) return 'Down';
     return 'Stable';
-  }, [monthlyTotals, totalIncome, month, year, monthlyBudget]);
+  }, [monthlyTotals, totalIncome, month, year, baseBudget]);
 
   const filteredTransactions = useMemo(
     () =>
