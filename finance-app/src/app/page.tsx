@@ -147,7 +147,7 @@ export default function Dashboard() {
     ? Number(balanceSnapshot.starting_balance)
     : baseBudget;
 
-  // Everything available this month, before spending: carried-over balance and
+  // Everything available to spend, before spending: carried-over balance and
   // budget, plus income received since.
   const availableFunds = budgetCapacity + totalIncome;
   const spendingProgress = availableFunds > 0 ? Math.min(totalExpenses / availableFunds, 1) : 0;
@@ -160,13 +160,18 @@ export default function Dashboard() {
   const dailyAverage = day > 0 ? totalExpenses / day : 0;
 
   // Savings rate, which the card labelled but never showed: the share of this
-  // month's available funds (budget and carryover plus income, not income
-  // alone) that has not been spent. Undefined when there are no available
-  // funds, rather than a division by zero rendered as NaN or Infinity.
+  // month's own money that has not been spent.
+  //
+  // Deliberately NOT `availableFunds`, which Remaining Budget uses. That
+  // includes the balance carried over from previous months, and a large
+  // carryover swamps the month being measured — a $694 budget with $198 spent
+  // read as a 99% savings rate because it was divided by a $20,649 balance.
+  // The denominator is this month's inflows alone: base budget plus income.
   //
   // Clamped at 0 so overspending reads as 0%, not a negative savings rate.
-  const savingsRate = availableFunds > 0
-    ? Math.max(1 - totalExpenses / availableFunds, 0)
+  const monthlyFunds = baseBudget + totalIncome;
+  const savingsRate = monthlyFunds > 0
+    ? Math.max(1 - totalExpenses / monthlyFunds, 0)
     : null;
 
   // "Stable" was a hardcoded string. Compare this month's income with last
