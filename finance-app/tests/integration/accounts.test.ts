@@ -8,29 +8,26 @@
  * and it disappears from every picker.
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
-import { NextRequest } from "next/server"
 import { pool } from "@/lib/db"
 import { DELETE, GET } from "@/app/api/accounts/route"
-import { accountById, createAccount } from "./support/fixtures"
+import { accountById, createAccount, createUser, insertTransaction } from "./support/fixtures"
 import { truncateAll } from "./support/database"
+import { authed, authedJson, type TestUser } from "./support/session"
 import type { Account } from "@/types/api"
 
-function list(query = ""): Promise<Account[]> {
-  return GET(new NextRequest(`http://localhost/api/accounts${query}`)).then((r) => r.json())
+let user: TestUser
+
+async function list(query = ""): Promise<Account[]> {
+  return GET(await authed(user, `http://localhost/api/accounts${query}`)).then((r) => r.json())
 }
 
-function archive(id: string) {
-  return DELETE(
-    new NextRequest("http://localhost/api/accounts", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
-    })
-  )
+async function archive(id: string) {
+  return DELETE(await authedJson(user, "http://localhost/api/accounts", "DELETE", { id }))
 }
 
 beforeEach(async () => {
   await truncateAll(pool)
+  user = await createUser(pool)
 })
 
 afterAll(async () => {
@@ -40,15 +37,18 @@ afterAll(async () => {
 describe("DELETE /api/accounts", () => {
   it("archives rather than deletes, keeping the transactions", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Old Card",
       type: "Credit Card",
       balance: -100,
     })
-    await pool.query(
-      `INSERT INTO transactions (date, amount, description, category, account_id)
-       VALUES ('2026-08-01', 100, 'coffee', 'food', $1)`,
-      [account.id]
-    )
+    await insertTransaction(pool, {
+      accountId: account.id,
+      date: "2026-08-01",
+      amount: 100,
+      category: "food",
+      description: "coffee",
+    })
 
     const res = await archive(account.id)
     expect(res.status).toBe(200)
@@ -62,8 +62,8 @@ describe("DELETE /api/accounts", () => {
   })
 
   it("hides the archived account from the endpoint every picker reads", async () => {
-    const kept = await createAccount(pool, { name: "Checking", type: "Checking" })
-    const gone = await createAccount(pool, { name: "Old Card", type: "Credit Card" })
+    const kept = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
+    const gone = await createAccount(pool, { userId: user.id, name: "Old Card", type: "Credit Card" })
 
     await archive(gone.id)
 
@@ -76,7 +76,7 @@ describe("DELETE /api/accounts", () => {
   })
 
   it("is idempotent", async () => {
-    const account = await createAccount(pool, { name: "Old Card", type: "Credit Card" })
+    const account = await createAccount(pool, { userId: user.id, name: "Old Card", type: "Credit Card" })
 
     expect((await archive(account.id)).status).toBe(200)
     expect((await archive(account.id)).status).toBe(200)
@@ -92,12 +92,14 @@ describe("DELETE /api/accounts", () => {
     // ON DELETE RESTRICT is the backstop behind the archive behaviour: even a
     // direct SQL delete cannot orphan a transaction. The old FK was
     // ON DELETE SET NULL against a NOT NULL column, which could never fire.
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
-    await pool.query(
-      `INSERT INTO transactions (date, amount, description, category, account_id)
-       VALUES ('2026-08-01', 100, 'coffee', 'food', $1)`,
-      [account.id]
-    )
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
+    await insertTransaction(pool, {
+      accountId: account.id,
+      date: "2026-08-01",
+      amount: 100,
+      category: "food",
+      description: "coffee",
+    })
 
     const error = await pool
       .query(`DELETE FROM accounts WHERE id = $1`, [account.id])
@@ -115,7 +117,7 @@ describe("accounts.max", () => {
   it("cannot be null, so income can never destroy the column", async () => {
     // `max = max + $2` evaluates to NULL for a null max, silently wiping the
     // credit limit. The column is NOT NULL DEFAULT 0 now.
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
 
     const error = await pool
       .query(`UPDATE accounts SET max = NULL WHERE id = $1`, [account.id])
@@ -126,7 +128,8 @@ describe("accounts.max", () => {
 
   it("defaults to 0 rather than null for a new account", async () => {
     const { rows } = await pool.query(
-      `INSERT INTO accounts (name, type) VALUES ('Bare', 'Checking') RETURNING max::float8 AS max`
+      `INSERT INTO accounts (user_id, name, type) VALUES ($1, 'Bare', 'Checking') RETURNING max::float8 AS max`,
+      [user.id]
     )
     expect(rows[0].max).toBe(0)
   })

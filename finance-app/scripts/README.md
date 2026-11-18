@@ -21,8 +21,12 @@ them at the same time left the result dependent on which finished first.
 
 ## process-recurring-payments
 
-Applies every recurring payment whose day of the month is today.
+Applies every recurring payment whose day of the month is today, for every
+user in one pass.
 
+- Each payment carries its own `user_id`, which goes onto the transaction it
+  generates and into the account lookup. The composite foreign keys mean its
+  account can only be its own user's.
 - The due day is **clamped to the length of the month**, so a payment set to the
   31st fires on the 28th of February rather than never firing at all. Each
   payment fires exactly once per month, always.
@@ -60,8 +64,12 @@ notice this on the 1st, when they no longer drop.
 
 The first ever run has no previous snapshot to read; it treats that month's
 starting balance as 0 and says so. It requires a `monthly_budgets` row for the
-current month, and fails with a clear message naming `db/seed.sql` if there
-isn't one.
+current month, which every user gets at sign-up.
+
+**It runs once per user, each in its own transaction.** One user's failure (a
+deleted budget row, say) rolls back only their rollover; everyone else still
+rolls over, and the job then exits non-zero naming who failed. Re-running it
+after the fix is safe for everyone, by the idempotency above.
 
 ## Running by hand
 

@@ -11,19 +11,29 @@ import {
   serializeAccount,
   serializeTransaction,
 } from "@/lib/api"
+import { requireUser } from "@/lib/session"
 import type { TransactionCreateBody, TransactionUpdateBody } from "@/types/api"
 
 export const runtime = "nodejs"
 
 /**
- * Locks an account row for the duration of the transaction and returns its
- * type. Reading inside the transaction with FOR UPDATE means the credit-account
- * check cannot race a concurrent edit to the account's type.
+ * Locks one of the caller's accounts for the duration of the transaction and
+ * returns its type. Reading inside the transaction with FOR UPDATE means the
+ * credit-account check cannot race a concurrent edit to the account's type.
+ *
+ * This is also the ownership check for every write below: an account that
+ * belongs to someone else is "not found", and nothing is written. The
+ * composite foreign key on transactions(account_id, user_id) would refuse the
+ * row anyway, but as a 500 rather than a 404.
  */
-async function lockAccount(client: PoolClient, accountId: string): Promise<string | null> {
+async function lockAccount(
+  client: PoolClient,
+  userId: string,
+  accountId: string
+): Promise<string | null> {
   const result = await client.query(
-    `SELECT type FROM accounts WHERE id = $1 FOR UPDATE`,
-    [accountId]
+    `SELECT type FROM accounts WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+    [accountId, userId]
   )
   if (result.rowCount === 0) {
     throw new HttpError(404, "Account not found")
@@ -37,16 +47,57 @@ function assertIncomeAllowed(category: string, accountType: string | null) {
   }
 }
 
+/**
+ * Applies a balance/max delta to one of the caller's accounts.
+ *
+ * Always after lockAccount() in the same transaction, which has already
+ * established the account is theirs. The user_id filter repeats it, so the
+ * statement is safe on its own and not only by virtue of what ran before it.
+ */
+async function adjustAccount(
+  client: PoolClient,
+  userId: string,
+  accountId: string,
+  balanceDelta: number,
+  maxDelta: number
+) {
+  // COALESCE because accounts.max was historically nullable with no default,
+  // and NULL + anything is NULL — income to such an account used to silently
+  // destroy the column.
+  const result = await client.query(
+    `UPDATE accounts
+        SET balance = balance + $1,
+            max = COALESCE(max, 0) + $2
+      WHERE id = $3 AND user_id = $4
+    RETURNING *`,
+    [balanceDelta, maxDelta, accountId, userId]
+  )
+  return result.rows[0]
+}
+
+/** Locks one of the caller's transactions, or 404s. */
+async function lockTransaction(client: PoolClient, userId: string, id: string) {
+  const result = await client.query(
+    `SELECT * FROM "transactions" WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+    [id, userId]
+  )
+  if (result.rowCount === 0) {
+    throw new HttpError(404, "Transaction not found")
+  }
+  return result.rows[0]
+}
+
 // Gets transactions for a month, for an account, or both
 export async function GET(req: NextRequest) {
   try {
+    const { userId } = await requireUser(req)
     const { searchParams } = new URL(req.url)
 
     const category = searchParams.get("category")
     const account = searchParams.get("account")
 
-    const values: unknown[] = []
-    const conditions: string[] = []
+    const values: unknown[] = [userId]
+    const conditions: string[] = ["user_id = $1"]
 
     if (account) {
       conditions.push(`account_id = $${values.length + 1}`)
@@ -59,7 +110,8 @@ export async function GET(req: NextRequest) {
     // the history tab's year view.
     const period = parsePeriod(searchParams)
     if (period) {
-      // Half-open date range instead of EXTRACT() so idx_transactions_date is used.
+      // Half-open date range instead of EXTRACT() so the (user_id, date)
+      // index is used.
       const { start, end } =
         period.kind === "month" ? monthRange(period.year, period.month) : yearRange(period.year)
       conditions.push(`date >= $${values.length + 1} AND date < $${values.length + 2}`)
@@ -73,13 +125,12 @@ export async function GET(req: NextRequest) {
       values.push(category)
     }
 
-    const where = conditions.length > 0 ? ` WHERE ${conditions.join(" AND ")}` : ""
-
     // Without ORDER BY this returned unspecified Postgres heap order, so
     // "Latest activity" was really reverse-insertion order and editing a
     // transaction's date did not move its row.
     const result = await pool.query(
-      `SELECT * FROM "transactions"${where} ORDER BY date DESC, created_at DESC`,
+      `SELECT * FROM "transactions" WHERE ${conditions.join(" AND ")}
+        ORDER BY date DESC, created_at DESC`,
       values
     )
 
@@ -92,6 +143,7 @@ export async function GET(req: NextRequest) {
 // Posts a transaction
 export async function POST(req: NextRequest) {
   try {
+    const { userId } = await requireUser(req)
     const body: TransactionCreateBody = await req.json()
     const { date, amount, description, category, account_id } = body
 
@@ -107,7 +159,7 @@ export async function POST(req: NextRequest) {
     const resolvedDescription = description?.trim() || category
 
     const { transaction, account } = await withTransaction(async (client) => {
-      const accountType = await lockAccount(client, account_id)
+      const accountType = await lockAccount(client, userId, account_id)
       assertIncomeAllowed(category, accountType)
 
       const deltas = transactionDeltas(category, accountType, parsedAmount)
@@ -115,26 +167,16 @@ export async function POST(req: NextRequest) {
       const inserted = await client.query(
         `
         INSERT INTO "transactions"
-        (date, amount, description, category, created_at, account_id)
-        VALUES ($1, $2, $3, $4, NOW(), $5)
+        (user_id, date, amount, description, category, created_at, account_id)
+        VALUES ($1, $2, $3, $4, $5, NOW(), $6)
         RETURNING *
         `,
-        [date, parsedAmount, resolvedDescription, category, account_id]
+        [userId, date, parsedAmount, resolvedDescription, category, account_id]
       )
 
-      // COALESCE because accounts.max was historically nullable with no
-      // default, and NULL + anything is NULL — income to such an account used
-      // to silently destroy the column.
-      const accountUpdate = await client.query(
-        `UPDATE accounts
-            SET balance = balance + $1,
-                max = COALESCE(max, 0) + $2
-          WHERE id = $3
-        RETURNING *`,
-        [deltas.balance, deltas.max, account_id]
-      )
+      const updated = await adjustAccount(client, userId, account_id, deltas.balance, deltas.max)
 
-      return { transaction: inserted.rows[0], account: accountUpdate.rows[0] }
+      return { transaction: inserted.rows[0], account: updated }
     })
 
     // `accounts` is returned so the client can stop re-deriving balances
@@ -152,6 +194,7 @@ export async function POST(req: NextRequest) {
 // Edits an existing transaction
 export async function PATCH(req: NextRequest) {
   try {
+    const { userId } = await requireUser(req)
     const body: TransactionUpdateBody = await req.json()
     const { id, date, amount, description, category, account_id } = body
 
@@ -162,15 +205,7 @@ export async function PATCH(req: NextRequest) {
     if (amount !== undefined) requireNumber(amount, "amount")
 
     const { transaction, accounts } = await withTransaction(async (client) => {
-      const existingResult = await client.query(
-        `SELECT * FROM "transactions" WHERE id = $1 FOR UPDATE`,
-        [id]
-      )
-      if (existingResult.rowCount === 0) {
-        throw new HttpError(404, "Transaction not found")
-      }
-
-      const existing = existingResult.rows[0]
+      const existing = await lockTransaction(client, userId, id)
       const existingAmount = Number(existing.amount)
       const existingAccountId = existing.account_id
 
@@ -179,11 +214,12 @@ export async function PATCH(req: NextRequest) {
       const newAccountId = account_id ?? existingAccountId
 
       // Lock both accounts in a stable order so two concurrent edits moving
-      // transactions between the same pair of accounts cannot deadlock.
+      // transactions between the same pair of accounts cannot deadlock. Moving
+      // a transaction into an account the caller does not own 404s here.
       const accountIds = [...new Set<string>([existingAccountId, newAccountId])].sort()
       const accountTypes = new Map<string, string | null>()
       for (const accountId of accountIds) {
-        accountTypes.set(accountId, await lockAccount(client, accountId))
+        accountTypes.set(accountId, await lockAccount(client, userId, accountId))
       }
 
       const existingAccountType = accountTypes.get(existingAccountId) ?? null
@@ -203,7 +239,7 @@ export async function PATCH(req: NextRequest) {
             description = COALESCE($3, description),
             category = COALESCE($4, category),
             account_id = COALESCE($5, account_id)
-        WHERE id = $6
+        WHERE id = $6 AND user_id = $7
         RETURNING *
         `,
         [
@@ -213,40 +249,28 @@ export async function PATCH(req: NextRequest) {
           category ?? null,
           account_id ?? null,
           id,
+          userId,
         ]
       )
 
       const updatedAccounts = []
 
       if (existingAccountId === newAccountId) {
-        const result = await client.query(
-          `UPDATE accounts
-              SET balance = balance + $1,
-                  max = COALESCE(max, 0) + $2
-            WHERE id = $3
-          RETURNING *`,
-          [newDeltas.balance - oldDeltas.balance, newDeltas.max - oldDeltas.max, newAccountId]
+        updatedAccounts.push(
+          await adjustAccount(
+            client,
+            userId,
+            newAccountId,
+            newDeltas.balance - oldDeltas.balance,
+            newDeltas.max - oldDeltas.max
+          )
         )
-        updatedAccounts.push(result.rows[0])
       } else {
         // Back the transaction out of the old account, then apply it to the new one.
-        const reverted = await client.query(
-          `UPDATE accounts
-              SET balance = balance - $1,
-                  max = COALESCE(max, 0) - $2
-            WHERE id = $3
-          RETURNING *`,
-          [oldDeltas.balance, oldDeltas.max, existingAccountId]
+        updatedAccounts.push(
+          await adjustAccount(client, userId, existingAccountId, -oldDeltas.balance, -oldDeltas.max),
+          await adjustAccount(client, userId, newAccountId, newDeltas.balance, newDeltas.max)
         )
-        const applied = await client.query(
-          `UPDATE accounts
-              SET balance = balance + $1,
-                  max = COALESCE(max, 0) + $2
-            WHERE id = $3
-          RETURNING *`,
-          [newDeltas.balance, newDeltas.max, newAccountId]
-        )
-        updatedAccounts.push(reverted.rows[0], applied.rows[0])
       }
 
       return { transaction: updateResult.rows[0], accounts: updatedAccounts }
@@ -264,39 +288,23 @@ export async function PATCH(req: NextRequest) {
 // Deletes a transaction
 export async function DELETE(req: NextRequest) {
   try {
+    const { userId } = await requireUser(req)
     // Accepts ?id= or a JSON body, so the three DELETE routes now share one
     // convention without breaking existing callers.
     const id = await readDeleteId(req)
 
     const account = await withTransaction(async (client) => {
-      const existingResult = await client.query(
-        `SELECT * FROM "transactions" WHERE id = $1 FOR UPDATE`,
-        [id]
-      )
-      if (existingResult.rowCount === 0) {
-        throw new HttpError(404, "Transaction not found")
-      }
-
-      const transaction = existingResult.rows[0]
-      const accountType = await lockAccount(client, transaction.account_id)
+      const transaction = await lockTransaction(client, userId, id)
+      const accountType = await lockAccount(client, userId, transaction.account_id)
       const deltas = transactionDeltas(
         transaction.category,
         accountType,
         Number(transaction.amount)
       )
 
-      await client.query(`DELETE FROM "transactions" WHERE id = $1`, [id])
+      await client.query(`DELETE FROM "transactions" WHERE id = $1 AND user_id = $2`, [id, userId])
 
-      const accountUpdate = await client.query(
-        `UPDATE accounts
-            SET balance = balance - $1,
-                max = COALESCE(max, 0) - $2
-          WHERE id = $3
-        RETURNING *`,
-        [deltas.balance, deltas.max, transaction.account_id]
-      )
-
-      return accountUpdate.rows[0]
+      return adjustAccount(client, userId, transaction.account_id, -deltas.balance, -deltas.max)
     })
 
     return NextResponse.json({

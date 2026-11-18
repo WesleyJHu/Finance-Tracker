@@ -1,97 +1,89 @@
-"use client";
+import React from "react";
+import { readGoogleConfig, safeRedirectPath } from "@/lib/auth";
+import { LOGIN_ERRORS, loginErrorMessage } from "@/lib/loginErrors";
 
-import React, { Suspense, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+// Reads AUTH_URL at request time, not build time: the image is built once and
+// configured by its environment.
+export const dynamic = "force-dynamic";
 
-function LoginForm() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
-  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError(null);
-    setLoading(true);
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
 
-    try {
-      const res = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ password }),
-      });
+/**
+ * The sign-in page: one "Sign in with Google" link, plus the reason the last
+ * attempt failed, if it did.
+ *
+ * A server component so the link can be absolute, built from AUTH_URL. The
+ * sign-in route sets its state cookie on whatever host it is reached on, and
+ * Google always redirects back to AUTH_URL — so arriving here via the NAS's
+ * LAN address and following a relative link would set the cookie on the
+ * wrong host, and every attempt would come back "expired".
+ */
+export default async function LoginPage({ searchParams }: { searchParams: SearchParams }) {
+  const params = await searchParams;
+  const next = safeRedirectPath(first(params.next));
+  const google = readGoogleConfig();
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.error || "Could not sign in");
-      }
+  const error = google.ok ? loginErrorMessage(first(params.error)) : LOGIN_ERRORS.not_configured;
 
-      // Only ever a path from the middleware's own redirect, never an absolute
-      // URL, so this cannot be pointed at another host.
-      const next = searchParams.get("next");
-      const destination = next && next.startsWith("/") && !next.startsWith("//") ? next : "/";
-
-      // refresh() so the server re-renders now that the cookie is set;
-      // push() alone can serve the cached logged-out route.
-      router.replace(destination);
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not sign in");
-      setPassword("");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const signInHref = google.ok
+    ? `${google.config.appUrl}/api/auth/google${next === "/" ? "" : `?next=${encodeURIComponent(next)}`}`
+    : null;
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-6">
       <div className="w-full max-w-sm rounded-3xl bg-white p-8 shadow-sm border border-slate-200">
         <h1 className="text-2xl font-bold text-slate-900">Finance Tracker</h1>
-        <p className="mt-2 text-sm text-slate-500">Enter your password to continue.</p>
+        <p className="mt-2 text-sm text-slate-500">Sign in with your Google account to continue.</p>
 
-        <form onSubmit={handleSubmit} className="mt-6 space-y-4">
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-slate-700 mb-1">
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              autoComplete="current-password"
-              autoFocus
-              required
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-4 py-2 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200"
-            />
-          </div>
+        {error && (
+          <p role="alert" className="mt-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </p>
+        )}
 
-          {error && (
-            <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-              {error}
-            </p>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+        {signInHref ? (
+          <a
+            href={signInHref}
+            className="mt-6 flex w-full items-center justify-center gap-3 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-slate-400 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-200"
           >
-            {loading ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
+            <GoogleMark />
+            Sign in with Google
+          </a>
+        ) : (
+          <p className="mt-6 text-sm text-slate-500">
+            Set GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET and AUTH_URL on the server. See
+            finance-app/README.md.
+          </p>
+        )}
       </div>
     </main>
   );
 }
 
-export default function LoginPage() {
-  // useSearchParams needs a Suspense boundary to prerender this route.
+/** Google's "G", as its sign-in branding guidelines ask buttons to show it. */
+function GoogleMark() {
   return (
-    <Suspense>
-      <LoginForm />
-    </Suspense>
+    <svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48">
+      <path
+        fill="#EA4335"
+        d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"
+      />
+      <path
+        fill="#4285F4"
+        d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"
+      />
+      <path
+        fill="#FBBC05"
+        d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"
+      />
+      <path
+        fill="#34A853"
+        d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"
+      />
+    </svg>
   );
 }

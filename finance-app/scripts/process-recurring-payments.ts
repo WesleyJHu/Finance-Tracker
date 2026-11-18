@@ -3,6 +3,11 @@
  *
  * Scheduled daily at midnight ET by worker.mjs. Safe to run by hand at any
  * time: a payment already applied for the current month is skipped.
+ *
+ * Covers every user in one pass. There is no per-user loop because there is
+ * no per-user state: each payment carries its own user_id, which goes onto
+ * the transaction it generates and into the account lookup, and the
+ * composite foreign keys mean that account can only be that user's.
  */
 import { pool, withTransaction } from "@/lib/db"
 import { transactionDeltas } from "@/lib/accounting"
@@ -10,6 +15,7 @@ import { isRecurringPaymentDue, todayInAppTz, toDateString } from "@/lib/dates"
 
 type RecurringPayment = {
   id: number
+  user_id: string
   amount: string
   day_of_month: number
   description: string | null
@@ -25,7 +31,7 @@ async function processRecurringPayments() {
   )
 
   const { rows: payments } = await pool.query<RecurringPayment>(
-    `SELECT id, amount, day_of_month, description, account_id, category
+    `SELECT id, user_id, amount, day_of_month, description, account_id, category
        FROM recurring_payments
       ORDER BY id`
   )
@@ -77,8 +83,8 @@ async function applyPayment(
       `
       INSERT INTO transactions
         (date, amount, description, category, account_id,
-         recurring_payment_id, period_year, period_month)
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         recurring_payment_id, period_year, period_month, user_id)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       ON CONFLICT (recurring_payment_id, period_year, period_month)
         WHERE recurring_payment_id IS NOT NULL
         DO NOTHING
@@ -96,14 +102,15 @@ async function applyPayment(
         payment.id,
         today.year,
         today.month,
+        payment.user_id,
       ]
     )
 
     if (inserted.rowCount === 0) return false
 
     const accountResult = await client.query(
-      `SELECT type FROM accounts WHERE id = $1 FOR UPDATE`,
-      [payment.account_id]
+      `SELECT type FROM accounts WHERE id = $1 AND user_id = $2 FOR UPDATE`,
+      [payment.account_id, payment.user_id]
     )
     if (accountResult.rowCount === 0) {
       throw new Error(
@@ -119,9 +126,9 @@ async function applyPayment(
       `UPDATE accounts
           SET balance = balance + $1,
               max = COALESCE(max, 0) + $2
-        WHERE id = $3
+        WHERE id = $3 AND user_id = $4
       RETURNING name, balance`,
-      [deltas.balance, deltas.max, payment.account_id]
+      [deltas.balance, deltas.max, payment.account_id, payment.user_id]
     )
 
     console.log(

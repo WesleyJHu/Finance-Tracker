@@ -1,27 +1,24 @@
 /**
- * That a generated hash survives being written to a .env file and read back.
- *
- * This is the test that was missing, and its absence is why the bug shipped:
- * every other auth test sets process.env directly, and the container test
- * passed the hash with `docker -e`. Both bypass the .env file entirely.
+ * That the auth settings survive being written to a .env file and read back.
  *
  * Next does not use plain dotenv — it runs dotenv-expand, which treats `$` in
- * a value as a variable reference. The old `scrypt$N$r$p$salt$hash` format
- * therefore loaded back as `scrypt31072==...`, with the parameters and most of
- * the salt expanded to nothing, so no password could ever match. It failed the
- * same way in production.
+ * a value as a variable reference. The old password hash used `$` as its
+ * separator and loaded back destroyed, so no password could ever match; every
+ * other test set process.env directly and so never saw it. This is the test
+ * that would have caught it, kept for the settings that replaced the hash.
  */
 import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
+import { randomBytes } from "node:crypto"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { loadEnvConfig } from "@next/env"
-import { hashPassword, isValidHashFormat, verifyPassword } from "@/lib/password"
-
-const PASSWORD = "a password with spaces"
+import { parseAllowedEmails } from "@/lib/auth"
 
 let dir: string
 const savedEnv = { ...process.env }
+
+const KEYS = ["AUTH_SECRET", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET", "AUTH_URL", "AUTH_ALLOWED_EMAILS"]
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), "finance-env-"))
@@ -35,9 +32,7 @@ afterEach(() => {
 /** Loads a .env file exactly the way `next dev` and `next start` do. */
 function loadAsNextWould(contents: string): NodeJS.ProcessEnv {
   fs.writeFileSync(path.join(dir, ".env"), contents, "utf8")
-
-  delete process.env.AUTH_SECRET
-  delete process.env.AUTH_PASSWORD_HASH
+  for (const key of KEYS) delete process.env[key]
 
   // forceReload, because @next/env memoises the first result process-wide and
   // would otherwise hand back the previous test's values.
@@ -45,89 +40,51 @@ function loadAsNextWould(contents: string): NodeJS.ProcessEnv {
   return combinedEnv as NodeJS.ProcessEnv
 }
 
-describe("a generated hash survives Next's env loader", () => {
-  it("round-trips through a .env file and still verifies", async () => {
-    const hash = await hashPassword(PASSWORD)
-    const env = loadAsNextWould(`AUTH_PASSWORD_HASH=${hash}\n`)
+describe("auth settings survive Next's env loader", () => {
+  it("round-trips a generated secret and Google-shaped values", () => {
+    const values = {
+      // What auth:setup generates: base64, so + / and = but never $.
+      AUTH_SECRET: randomBytes(32).toString("base64"),
+      // Deliberately not shaped exactly like real credentials: GitHub's push
+      // protection blocks a push containing anything that matches Google's
+      // client ID or GOCSPX- secret patterns, fake or not.
+      GOOGLE_CLIENT_ID: "fake-client-id-for-tests.apps.googleusercontent.com",
+      GOOGLE_CLIENT_SECRET: "fake-client-secret_with-dashes+and/slashes=",
+      AUTH_URL: "https://nas.example-tailnet.ts.net",
+      AUTH_ALLOWED_EMAILS: "one@gmail.com, two@gmail.com",
+    }
 
-    expect(env.AUTH_PASSWORD_HASH).toBe(hash)
-    expect(await verifyPassword(PASSWORD, env.AUTH_PASSWORD_HASH!)).toBe(true)
-  }, 60_000)
-
-  it("contains no character dotenv-expand would consume", async () => {
-    // The direct statement of the rule, so a future format change that
-    // reintroduces `$` fails here rather than in someone's login form.
-    const hash = await hashPassword(PASSWORD)
-    expect(hash).not.toContain("$")
-  }, 60_000)
-
-  it("survives alongside other variables", async () => {
-    const hash = await hashPassword(PASSWORD)
     const env = loadAsNextWould(
       [
         "DATABASE_URL=postgresql://user:pw%20with%20space@host:5432/db",
-        `AUTH_SECRET=c29tZS1zZWNyZXQ=`,
-        `AUTH_PASSWORD_HASH=${hash}`,
+        ...Object.entries(values).map(([key, value]) => `${key}=${value}`),
         "",
       ].join("\n")
     )
 
-    expect(env.AUTH_PASSWORD_HASH).toBe(hash)
-    expect(env.AUTH_SECRET).toBe("c29tZS1zZWNyZXQ=")
-    expect(await verifyPassword(PASSWORD, env.AUTH_PASSWORD_HASH!)).toBe(true)
-  }, 60_000)
-
-  it("demonstrates what the old $-separated format did", async () => {
-    // Not a hypothetical: this is the exact shape that shipped.
-    const legacy = "scrypt$131072$8$1$c2FsdHNhbHRzYWx0c2E=$aGFzaGhhc2hoYXNo"
-    const env = loadAsNextWould(`AUTH_PASSWORD_HASH=${legacy}\n`)
-
-    expect(env.AUTH_PASSWORD_HASH).not.toBe(legacy)
-    expect(isValidHashFormat(env.AUTH_PASSWORD_HASH)).toBe(false)
+    for (const [key, value] of Object.entries(values)) {
+      expect(env[key], key).toBe(value)
+    }
+    expect(parseAllowedEmails(env.AUTH_ALLOWED_EMAILS)).toEqual(new Set(["one@gmail.com", "two@gmail.com"]))
   })
 
-  it("still accepts a legacy $-separated hash from a real environment variable", async () => {
-    // docker -e and compose never go through dotenv-expand, so an intact
-    // legacy hash must keep working rather than locking someone out.
-    const { randomBytes, scrypt } = await import("node:crypto")
-    const { promisify } = await import("node:util")
-    const scryptAsync = promisify(scrypt) as (
-      p: string,
-      s: Buffer,
-      k: number,
-      o: { N: number; r: number; p: number; maxmem: number }
-    ) => Promise<Buffer>
+  it("keeps `*` for the allowlist literally", () => {
+    const env = loadAsNextWould("AUTH_ALLOWED_EMAILS=*\n")
+    expect(parseAllowedEmails(env.AUTH_ALLOWED_EMAILS)).toBe("*")
+  })
 
-    const salt = randomBytes(16)
-    const derived = await scryptAsync(PASSWORD, salt, 64, {
-      N: 2 ** 14,
-      r: 8,
-      p: 1,
-      maxmem: 256 * 1024 * 1024,
-    })
-    const legacy = `scrypt$16384$8$1$${salt.toString("base64")}$${derived.toString("base64")}`
-
-    expect(isValidHashFormat(legacy)).toBe(true)
-    expect(await verifyPassword(PASSWORD, legacy)).toBe(true)
-    expect(await verifyPassword("wrong", legacy)).toBe(false)
-  }, 60_000)
-})
-
-describe("isValidHashFormat", () => {
-  it("accepts both separators and rejects anything else", async () => {
-    expect(isValidHashFormat(await hashPassword(PASSWORD))).toBe(true)
-    expect(isValidHashFormat("scrypt$131072$8$1$c2FsdA==$aGFzaA==")).toBe(true)
-
-    for (const value of [
-      undefined,
-      "",
-      // What dotenv-expand left behind.
-      "scrypt31072==/TMbyn0YVyRaSpAifbMSzf5ix4Xtk2LwqrVaSaBvMEZ4w==",
-      "scrypt:131072:8:1",
-      "bcrypt:131072:8:1:c2FsdA==:aGFzaA==",
-      "just-a-password",
-    ]) {
-      expect(isValidHashFormat(value), String(value)).toBe(false)
+  it("never generates a secret containing `$`", () => {
+    // The direct statement of the rule, for the one value the app generates.
+    for (let i = 0; i < 200; i++) {
+      expect(randomBytes(32).toString("base64")).not.toContain("$")
     }
-  }, 60_000)
+  })
+
+  it("demonstrates what a `$` in a value does, and that escaping it works", () => {
+    // Why .env.example warns about it: a client secret or database password
+    // containing `$` is silently truncated unless written as \$.
+    const env = loadAsNextWould("GOOGLE_CLIENT_SECRET=abc$def\nAUTH_SECRET=abc\\$def\n")
+    expect(env.GOOGLE_CLIENT_SECRET).not.toBe("abc$def")
+    expect(env.AUTH_SECRET).toBe("abc$def")
+  })
 })

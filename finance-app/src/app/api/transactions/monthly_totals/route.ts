@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server"
 import { pool, HttpError } from "@/lib/db"
 import { handleRouteError } from "@/lib/api"
+import { requireUser } from "@/lib/session"
 import { monthRange, previousMonth, todayInAppTz } from "@/lib/dates"
 import type { MonthlyTotal } from "@/types/api"
 
@@ -20,6 +21,7 @@ const MAX_MONTHS = 24
 // spaced.
 export async function GET(req: NextRequest) {
   try {
+    const { userId } = await requireUser(req)
     const monthsParam = new URL(req.url).searchParams.get("months")
     const months = monthsParam === null ? DEFAULT_MONTHS : Number(monthsParam)
 
@@ -41,7 +43,7 @@ export async function GET(req: NextRequest) {
     const start = monthRange(periods[0].year, periods[0].month).start
     const end = monthRange(periods[periods.length - 1].year, periods[periods.length - 1].month).end
 
-    // Half-open range on a bare date column, so idx_transactions_date is used.
+    // Half-open range on a bare date column, so the (user_id, date) index is used.
     const { rows } = await pool.query(
       `
       SELECT
@@ -50,10 +52,10 @@ export async function GET(req: NextRequest) {
         COALESCE(SUM(amount) FILTER (WHERE category =  'income'), 0)::float8 AS income,
         COALESCE(SUM(amount) FILTER (WHERE category <> 'income'), 0)::float8 AS expenses
       FROM transactions
-      WHERE date >= $1 AND date < $2
+      WHERE user_id = $1 AND date >= $2 AND date < $3
       GROUP BY 1, 2
       `,
-      [start, end]
+      [userId, start, end]
     )
 
     const byPeriod = new Map(
