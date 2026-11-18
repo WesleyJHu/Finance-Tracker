@@ -7,15 +7,22 @@ import {
   requireNumber,
   serializeAccount,
 } from "@/lib/api"
+import { requireUser } from "@/lib/session"
 import type { AccountCreateBody, AccountUpdateBody } from "@/types/api"
 
 export const runtime = "nodejs"
+
+// Every statement below filters on user_id, including the writes: an id from
+// another user's account matches no row and so reads as 404, the same answer
+// as an id that does not exist. Saying 403 instead would confirm it exists.
 
 const UPDATABLE_COLUMNS = ["name", "type", "balance", "max"] as const
 
 // Gets all accounts
 export async function GET(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
+
         // Archived accounts are hidden everywhere by default. The dashboard,
         // both transaction pickers and the settings modal all read this one
         // endpoint, so they all honour it without further changes.
@@ -26,8 +33,9 @@ export async function GET(req: NextRequest) {
         // one here would visibly reshuffle the dashboard. Left for Phase 4.
         const result = await pool.query(
             includeArchived
-                ? "SELECT * FROM accounts"
-                : "SELECT * FROM accounts WHERE archived = false"
+                ? "SELECT * FROM accounts WHERE user_id = $1"
+                : "SELECT * FROM accounts WHERE user_id = $1 AND archived = false",
+            [userId]
         )
 
         return NextResponse.json(result.rows.map(serializeAccount))
@@ -39,6 +47,7 @@ export async function GET(req: NextRequest) {
 // Creates a new account
 export async function POST(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
         const body: AccountCreateBody = await req.json()
         const { name, type, balance, max } = body
 
@@ -50,8 +59,8 @@ export async function POST(req: NextRequest) {
         const parsedMax = requireNumber(max, "max")
 
         const result = await pool.query(
-            "INSERT INTO accounts (name, type, balance, max) VALUES ($1, $2, $3, $4) RETURNING *",
-            [name, type, parsedBalance, parsedMax]
+            "INSERT INTO accounts (user_id, name, type, balance, max) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            [userId, name, type, parsedBalance, parsedMax]
         )
 
         return NextResponse.json(serializeAccount(result.rows[0]), { status: 201 })
@@ -63,6 +72,7 @@ export async function POST(req: NextRequest) {
 // Edits an existing account
 export async function PATCH(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
         const body: AccountUpdateBody = await req.json()
         const { id, name, type, balance, max } = body
 
@@ -88,8 +98,10 @@ export async function PATCH(req: NextRequest) {
         }
 
         const result = await pool.query(
-            `UPDATE accounts SET ${update.clause} WHERE id = $${update.values.length + 1} RETURNING *`,
-            [...update.values, id]
+            `UPDATE accounts SET ${update.clause}
+              WHERE id = $${update.values.length + 1} AND user_id = $${update.values.length + 2}
+            RETURNING *`,
+            [...update.values, id, userId]
         )
 
         if (result.rowCount === 0) {
@@ -112,11 +124,12 @@ export async function PATCH(req: NextRequest) {
 // Kept on the DELETE verb so the client contract is unchanged.
 export async function DELETE(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
         const id = await readDeleteId(req)
 
         const result = await pool.query(
-            "UPDATE accounts SET archived = true WHERE id = $1 RETURNING *",
-            [id]
+            "UPDATE accounts SET archived = true WHERE id = $1 AND user_id = $2 RETURNING *",
+            [id, userId]
         )
 
         if (result.rowCount === 0) {

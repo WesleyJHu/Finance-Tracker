@@ -5,31 +5,28 @@
  * load. PATCH is an upsert now.
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
-import { NextRequest } from "next/server"
 import { pool } from "@/lib/db"
 import { GET, PATCH } from "@/app/api/monthly_budgets/route"
-import { createBudget, createSnapshot } from "./support/fixtures"
+import { createBudget, createSnapshot, createUser } from "./support/fixtures"
 import { truncateAll } from "./support/database"
+import { authed, authedJson, type TestUser } from "./support/session"
 import { previousMonth, todayInAppTz } from "@/lib/dates"
 
-function patch(body: unknown) {
-  return PATCH(
-    new NextRequest("http://localhost/api/monthly_budgets", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-  )
+let user: TestUser
+
+async function patch(body: unknown) {
+  return PATCH(await authedJson(user, "http://localhost/api/monthly_budgets", "PATCH", body))
 }
 
 async function budgetFor(month: number) {
-  const res = await GET(new NextRequest(`http://localhost/api/monthly_budgets?month=${month}`))
+  const res = await GET(await authed(user, `http://localhost/api/monthly_budgets?month=${month}`))
   const rows = await res.json()
   return rows[0]
 }
 
 beforeEach(async () => {
   await truncateAll(pool)
+  user = await createUser(pool)
 })
 
 afterAll(async () => {
@@ -45,7 +42,7 @@ describe("PATCH /api/monthly_budgets", () => {
   })
 
   it("updates a month that already has a row", async () => {
-    await createBudget(pool, 3, 2000)
+    await createBudget(pool, user.id, 3, 2000)
 
     expect((await patch({ month: 3, base_budget: 2500 })).status).toBe(200)
     expect(await budgetFor(3)).toMatchObject({ base_budget: 2500 })
@@ -94,9 +91,10 @@ describe("PATCH /api/monthly_budgets keeps this month's snapshot in step", () =>
   }
 
   it("shifts an existing snapshot by the change in budget", async () => {
-    await createBudget(pool, today.month, 100)
+    await createBudget(pool, user.id, today.month, 100)
     // 400 carried over from last month plus the 100 budget.
     await createSnapshot(pool, {
+      userId: user.id,
       month: today.month,
       year: today.year,
       startingBalance: 500,
@@ -108,8 +106,9 @@ describe("PATCH /api/monthly_budgets keeps this month's snapshot in step", () =>
   })
 
   it("shifts downwards too", async () => {
-    await createBudget(pool, today.month, 300)
+    await createBudget(pool, user.id, today.month, 300)
     await createSnapshot(pool, {
+      userId: user.id,
       month: today.month,
       year: today.year,
       startingBalance: 700,
@@ -122,6 +121,7 @@ describe("PATCH /api/monthly_budgets keeps this month's snapshot in step", () =>
 
   it("opens the month when the job has not run yet, carrying the previous ending balance", async () => {
     await createSnapshot(pool, {
+      userId: user.id,
       month: previous.month,
       year: previous.year,
       startingBalance: 0,
@@ -141,6 +141,7 @@ describe("PATCH /api/monthly_budgets keeps this month's snapshot in step", () =>
 
   it("leaves other months' snapshots alone", async () => {
     await createSnapshot(pool, {
+      userId: user.id,
       month: today.month,
       year: today.year,
       startingBalance: 500,

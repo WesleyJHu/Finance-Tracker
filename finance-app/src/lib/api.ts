@@ -165,21 +165,37 @@ export function buildUpdate(
 
 const num = (value: unknown): number => Number(value)
 
+/**
+ * Every row carries `user_id`, and every route only ever returns the caller's
+ * own rows, so it is always the caller's id. Dropped anyway: it is not part
+ * of the API contract, and a field the client never needs is one it cannot
+ * start depending on.
+ */
+function withoutOwner(row: QueryResultRow): QueryResultRow {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { user_id, ...rest } = row
+  return rest
+}
+
 export function serializeAccount(row: QueryResultRow): Account {
-  return { ...row, balance: num(row.balance), max: num(row.max) } as Account
+  return { ...withoutOwner(row), balance: num(row.balance), max: num(row.max) } as Account
 }
 
 export function serializeTransaction(row: QueryResultRow): Transaction {
-  return { ...row, amount: num(row.amount) } as Transaction
+  return { ...withoutOwner(row), amount: num(row.amount) } as Transaction
 }
 
 export function serializeMonthlyBudget(row: QueryResultRow): MonthlyBudget {
-  return { ...row, month: num(row.month), base_budget: num(row.base_budget) } as MonthlyBudget
+  return {
+    ...withoutOwner(row),
+    month: num(row.month),
+    base_budget: num(row.base_budget),
+  } as MonthlyBudget
 }
 
 export function serializeBalanceSnapshot(row: QueryResultRow): BalanceSnapshot {
   return {
-    ...row,
+    ...withoutOwner(row),
     starting_balance: num(row.starting_balance),
     ending_balance: row.ending_balance === null ? null : num(row.ending_balance),
     month: num(row.month),
@@ -188,7 +204,11 @@ export function serializeBalanceSnapshot(row: QueryResultRow): BalanceSnapshot {
 }
 
 export function serializeRecurringPayment(row: QueryResultRow): RecurringPayment {
-  return { ...row, amount: num(row.amount), day_of_month: num(row.day_of_month) } as RecurringPayment
+  return {
+    ...withoutOwner(row),
+    amount: num(row.amount),
+    day_of_month: num(row.day_of_month),
+  } as RecurringPayment
 }
 
 export function serializeYearBalanceSummary(

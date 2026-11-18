@@ -85,7 +85,7 @@ export async function truncateAll(client: {
 }): Promise<void> {
   await client.query(
     `TRUNCATE transactions, recurring_payments, monthly_balance_snapshot,
-              monthly_budgets, accounts RESTART IDENTITY CASCADE`
+              monthly_budgets, accounts, users RESTART IDENTITY CASCADE`
   )
 }
 

@@ -13,15 +13,25 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
 import { pool } from "@/lib/db"
 import { isRecurringPaymentDue, todayInAppTz, toDateString } from "@/lib/dates"
-import { accountById, countTransactions, createAccount, createRecurringPayment } from "./support/fixtures"
+import {
+  accountById,
+  countTransactions,
+  createAccount,
+  createRecurringPayment,
+  createUser,
+} from "./support/fixtures"
 import { truncateAll } from "./support/database"
 import { runScript, SCRIPTS } from "./support/runScript"
+import type { TestUser } from "./support/session"
 
 const TODAY = todayInAppTz()
 const NOT_TODAY = TODAY.day === 1 ? 2 : 1
 
+let user: TestUser
+
 beforeEach(async () => {
   await truncateAll(pool)
+  user = await createUser(pool)
 })
 
 afterAll(async () => {
@@ -31,6 +41,7 @@ afterAll(async () => {
 describe("process-recurring-payments", () => {
   it("applies a payment due today, once", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -52,6 +63,7 @@ describe("process-recurring-payments", () => {
 
   it("changes nothing on a second run (P0-2)", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -83,6 +95,7 @@ describe("process-recurring-payments", () => {
     // enum public."Category", which is lowercase-only. Without the conversion
     // the insert throws outright.
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -105,6 +118,7 @@ describe("process-recurring-payments", () => {
     // A run after 20:00 ET used to write tomorrow's UTC date, landing the row
     // in the wrong month on the 30th and 31st.
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -126,6 +140,7 @@ describe("process-recurring-payments", () => {
 
   it("leaves a payment due on another day alone", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -145,6 +160,7 @@ describe("process-recurring-payments", () => {
 
   it("credits max rather than balance for recurring income", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -167,6 +183,7 @@ describe("process-recurring-payments", () => {
   it("exits non-zero when a payment points at a missing account", async () => {
     // The old script caught this and exited 0, so the worker reported success.
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Doomed",
       type: "Checking",
       balance: 1000,
@@ -183,23 +200,34 @@ describe("process-recurring-payments", () => {
     await pool.query(
       `ALTER TABLE recurring_payments DROP CONSTRAINT IF EXISTS recurring_payments_account_id_fkey`
     )
-    await pool.query(
-      `UPDATE recurring_payments SET account_id = '00000000-0000-0000-0000-000000000000'
-        WHERE id = $1`,
-      [payment.id]
-    )
+    try {
+      await pool.query(
+        `UPDATE recurring_payments SET account_id = '00000000-0000-0000-0000-000000000000'
+          WHERE id = $1`,
+        [payment.id]
+      )
 
-    const run = await runScript(SCRIPTS.recurring)
-    expect(run.code).not.toBe(0)
+      const run = await runScript(SCRIPTS.recurring)
+      expect(run.code).not.toBe(0)
 
-    // And the failed payment left nothing behind.
-    expect(await countTransactions(pool)).toBe(0)
+      // And the failed payment left nothing behind.
+      expect(await countTransactions(pool)).toBe(0)
+    } finally {
+      // Put the constraint back. The test files share one database, and
+      // user-isolation.test.ts asserts this exact constraint refuses
+      // cross-user rows — it failed whenever this file happened to run first.
+      await pool.query(`DELETE FROM recurring_payments WHERE id = $1`, [payment.id])
+      await pool.query(
+        `ALTER TABLE recurring_payments ADD CONSTRAINT recurring_payments_account_id_fkey
+           FOREIGN KEY (account_id, user_id) REFERENCES accounts(id, user_id)`
+      )
+    }
   })
 
   it("is protected by a database constraint, not just by application logic", async () => {
     // Belt and braces: even a caller that bypasses the script cannot write two
     // rows for the same payment and period.
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
     const payment = await createRecurringPayment(pool, {
       amount: 10,
       dayOfMonth: TODAY.day,
@@ -211,9 +239,9 @@ describe("process-recurring-payments", () => {
       pool.query(
         `INSERT INTO transactions
            (date, amount, description, category, account_id,
-            recurring_payment_id, period_year, period_month)
-         VALUES ($1, 10, 'x', 'bills', $2, $3, 2026, 3)`,
-        [toDateString(2026, 3, 1), account.id, payment.id]
+            recurring_payment_id, period_year, period_month, user_id)
+         VALUES ($1, 10, 'x', 'bills', $2, $3, 2026, 3, $4)`,
+        [toDateString(2026, 3, 1), account.id, payment.id, user.id]
       )
 
     await insert()
@@ -231,6 +259,7 @@ describe("process-recurring-payments: due-day selection end to end", () => {
     // `day_of_month === currentDay`, which skipped a payment on the 31st in
     // five months of the year and anything after the 28th in February.
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 100_000,
@@ -267,6 +296,7 @@ describe("process-recurring-payments: due-day selection end to end", () => {
 
   it("skips a payment with no account and still applies the rest", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,

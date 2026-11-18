@@ -14,20 +14,16 @@
  * zero.
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
-import { NextRequest } from "next/server"
 import { pool } from "@/lib/db"
 import { POST } from "@/app/api/transactions/route"
-import { accountById, createAccount } from "./support/fixtures"
+import { accountById, createAccount, createUser } from "./support/fixtures"
 import { truncateAll } from "./support/database"
+import { authedJson, type TestUser } from "./support/session"
 
-function post(body: unknown) {
-  return POST(
-    new NextRequest("http://localhost/api/transactions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-  )
+let user: TestUser
+
+async function post(body: unknown) {
+  return POST(await authedJson(user, "http://localhost/api/transactions", "POST", body))
 }
 
 const DROP_FLOOR = `ALTER TABLE accounts DROP CONSTRAINT IF EXISTS test_balance_floor`
@@ -35,6 +31,7 @@ const DROP_FLOOR = `ALTER TABLE accounts DROP CONSTRAINT IF EXISTS test_balance_
 beforeEach(async () => {
   await pool.query(DROP_FLOOR)
   await truncateAll(pool)
+  user = await createUser(pool)
 })
 
 afterAll(async () => {
@@ -45,11 +42,13 @@ afterAll(async () => {
 describe("concurrent writes", () => {
   it("leaves no orphaned transaction rows when requests interleave (P0-1)", async () => {
     const guarded = await createAccount(pool, {
+      userId: user.id,
       name: "Guarded",
       type: "Checking",
       balance: 1000,
     })
     const churn = await createAccount(pool, {
+      userId: user.id,
       name: "Churn",
       type: "Checking",
       balance: 1_000_000,
@@ -115,6 +114,7 @@ describe("concurrent writes", () => {
     // Read-modify-write would lose updates here. The routes do a relative
     // `balance = balance + $1` under FOR UPDATE, so the arithmetic is exact.
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,

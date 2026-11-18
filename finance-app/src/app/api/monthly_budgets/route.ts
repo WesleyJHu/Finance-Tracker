@@ -3,6 +3,7 @@ import { pool, HttpError, withTransaction } from "@/lib/db"
 import { handleRouteError, requireNumber, serializeMonthlyBudget } from "@/lib/api"
 import { snapshotStartingBalance } from "@/lib/accounting"
 import { previousMonth, todayInAppTz } from "@/lib/dates"
+import { requireUser } from "@/lib/session"
 import type { MonthlyBudgetUpdateBody } from "@/types/api"
 
 export const runtime = "nodejs"
@@ -15,21 +16,24 @@ function assertValidMonth(month: number) {
 
 // Gets the budget for one month, or all 12 rows if no month is given.
 //
-// There is deliberately no `year`: these are 12 reusable rows shared across
-// every year. See the header of db/schema.sql.
+// There is deliberately no `year`: each user has 12 reusable rows shared
+// across every year. See the header of db/schema.sql.
 export async function GET(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
         const monthParam = new URL(req.url).searchParams.get("month")
 
-        const values: unknown[] = []
-        let query = `SELECT * FROM "monthly_budgets"`
+        const values: unknown[] = [userId]
+        let query = `SELECT * FROM "monthly_budgets" WHERE user_id = $1`
 
         if (monthParam) {
             const month = Number(monthParam)
             assertValidMonth(month)
-            query += ` WHERE month = $1`
+            query += ` AND month = $2`
             values.push(month)
         }
+
+        query += ` ORDER BY month`
 
         const result = await pool.query(query, values)
         return NextResponse.json(result.rows.map(serializeMonthlyBudget))
@@ -47,6 +51,7 @@ export async function GET(req: NextRequest) {
 // so PATCH covers both and there is no POST.
 export async function PATCH(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
         const body: MonthlyBudgetUpdateBody = await req.json()
         const { month, base_budget } = body
 
@@ -70,23 +75,24 @@ export async function PATCH(req: NextRequest) {
             // two concurrent edits of the same month, so the two deltas cannot
             // both be computed against the same starting point.
             const before = await client.query(
-                `SELECT base_budget FROM "monthly_budgets" WHERE month = $1 FOR UPDATE`,
-                [targetMonth]
+                `SELECT base_budget FROM "monthly_budgets" WHERE user_id = $1 AND month = $2 FOR UPDATE`,
+                [userId, targetMonth]
             )
             const previousBaseBudget = Number(before.rows[0]?.base_budget ?? 0)
 
             const result = await client.query(
                 `
-                INSERT INTO "monthly_budgets" (month, base_budget)
-                VALUES ($2, $1)
-                ON CONFLICT (month) DO UPDATE SET base_budget = EXCLUDED.base_budget
+                INSERT INTO "monthly_budgets" (user_id, month, base_budget)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (user_id, month) DO UPDATE SET base_budget = EXCLUDED.base_budget
                 RETURNING *
                 `,
-                [parsedBudget, targetMonth]
+                [userId, targetMonth, parsedBudget]
             )
 
             await applyBudgetChangeToSnapshot(
                 client,
+                userId,
                 targetMonth,
                 previousBaseBudget,
                 parsedBudget
@@ -119,6 +125,7 @@ export async function PATCH(req: NextRequest) {
  */
 async function applyBudgetChangeToSnapshot(
     client: { query: typeof pool.query },
+    userId: string,
     month: number,
     previousBaseBudget: number,
     newBaseBudget: number
@@ -129,9 +136,9 @@ async function applyBudgetChangeToSnapshot(
     const delta = newBaseBudget - previousBaseBudget
     const existing = await client.query(
         `SELECT starting_balance FROM monthly_balance_snapshot
-          WHERE month = $1 AND year = $2
+          WHERE user_id = $1 AND month = $2 AND year = $3
           FOR UPDATE`,
-        [today.month, today.year]
+        [userId, today.month, today.year]
     )
 
     if (existing.rowCount !== 0) {
@@ -142,8 +149,8 @@ async function applyBudgetChangeToSnapshot(
         await client.query(
             `UPDATE monthly_balance_snapshot
                 SET starting_balance = starting_balance + $1
-              WHERE month = $2 AND year = $3`,
-            [delta, today.month, today.year]
+              WHERE user_id = $2 AND month = $3 AND year = $4`,
+            [delta, userId, today.month, today.year]
         )
         return
     }
@@ -155,19 +162,20 @@ async function applyBudgetChangeToSnapshot(
     const previous = previousMonth({ year: today.year, month: today.month })
     const carryover = await client.query(
         `SELECT ending_balance FROM monthly_balance_snapshot
-          WHERE month = $1 AND year = $2`,
-        [previous.month, previous.year]
+          WHERE user_id = $1 AND month = $2 AND year = $3`,
+        [userId, previous.month, previous.year]
     )
     const previousEndingBalance = Number(carryover.rows[0]?.ending_balance ?? 0)
 
     await client.query(
         `
-        INSERT INTO monthly_balance_snapshot (starting_balance, month, year)
-        VALUES ($1, $2, $3)
-        ON CONFLICT (month, year)
+        INSERT INTO monthly_balance_snapshot (user_id, starting_balance, month, year)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (user_id, month, year)
         DO UPDATE SET starting_balance = EXCLUDED.starting_balance
         `,
         [
+            userId,
             snapshotStartingBalance(previousEndingBalance, newBaseBudget),
             today.month,
             today.year,

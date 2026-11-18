@@ -7,33 +7,37 @@
  * of steadily increasing spending.
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
-import { NextRequest } from "next/server"
 import { pool } from "@/lib/db"
 import { GET } from "@/app/api/transactions/monthly_totals/route"
 import { previousMonth, todayInAppTz, toDateString } from "@/lib/dates"
-import { createAccount } from "./support/fixtures"
+import { createAccount, createUser, insertTransaction } from "./support/fixtures"
 import { truncateAll } from "./support/database"
+import { authed, type TestUser } from "./support/session"
 import type { MonthlyTotal } from "@/types/api"
 
 const TODAY = todayInAppTz()
 const CURRENT = { year: TODAY.year, month: TODAY.month }
 const PREVIOUS = previousMonth(CURRENT)
 
+let user: TestUser
+
 async function totals(query = ""): Promise<{ status: number; body: MonthlyTotal[] }> {
-  const res = await GET(new NextRequest(`http://localhost/api/transactions/monthly_totals${query}`))
+  const res = await GET(await authed(user, `http://localhost/api/transactions/monthly_totals${query}`))
   return { status: res.status, body: await res.json() }
 }
 
 async function spend(accountId: string, period: { year: number; month: number }, amount: number) {
-  await pool.query(
-    `INSERT INTO transactions (date, amount, description, category, account_id)
-     VALUES ($1, $2, 'x', 'grocery', $3)`,
-    [toDateString(period.year, period.month, 5), amount, accountId]
-  )
+  await insertTransaction(pool, {
+    accountId,
+    date: toDateString(period.year, period.month, 5),
+    amount,
+    category: "grocery",
+  })
 }
 
 beforeEach(async () => {
   await truncateAll(pool)
+  user = await createUser(pool)
 })
 
 afterAll(async () => {
@@ -64,19 +68,17 @@ describe("GET /api/transactions/monthly_totals", () => {
   })
 
   it("separates income from expenses", async () => {
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
-    await pool.query(
-      `INSERT INTO transactions (date, amount, description, category, account_id)
-       VALUES ($1, 400, 'rent', 'bills', $2), ($1, 250, 'pay', 'income', $2)`,
-      [toDateString(CURRENT.year, CURRENT.month, 5), account.id]
-    )
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
+    const date = toDateString(CURRENT.year, CURRENT.month, 5)
+    await insertTransaction(pool, { accountId: account.id, date, amount: 400, category: "bills" })
+    await insertTransaction(pool, { accountId: account.id, date, amount: 250, category: "income" })
 
     const { body } = await totals()
     expect(body[5]).toMatchObject({ income: 250, expenses: 400 })
   })
 
   it("attributes each transaction to its own month", async () => {
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
     await spend(account.id, CURRENT, 100)
     await spend(account.id, PREVIOUS, 250)
 
@@ -86,7 +88,7 @@ describe("GET /api/transactions/monthly_totals", () => {
   })
 
   it("excludes anything older than the requested window", async () => {
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
 
     // Seven months back, one month outside a six-month window.
     let old = CURRENT

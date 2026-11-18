@@ -26,11 +26,10 @@ Start a database. Any Postgres works; a throwaway container is easiest:
 docker run -d --name finance-local -e POSTGRES_USER=finance -e POSTGRES_PASSWORD=localdev -e POSTGRES_DB=finance -e TZ=America/New_York -p 55432:5432 postgres:18-alpine
 ```
 
-Create the schema and the seed rows:
+Create the schema:
 
 ```bash
 docker exec -i finance-local psql -U finance -d finance < db/schema.sql
-docker exec -i finance-local psql -U finance -d finance < db/seed.sql
 ```
 
 Point the app at it:
@@ -40,7 +39,9 @@ cp .env.example .env.local
 # then set DATABASE_URL=postgresql://finance:localdev@localhost:55432/finance
 ```
 
-Set a password:
+Configure Google sign-in (see [Authentication](#authentication) for creating
+the OAuth client; add `http://localhost:3000/api/auth/google/callback` as one of
+its redirect URIs, and answer `http://localhost:3000` for the URL):
 
 ```bash
 npm run auth:setup
@@ -60,18 +61,19 @@ The dashboard is at <http://localhost:3000>.
 > is also unreliable through PowerShell's object pipeline; use
 > `cmd /c "docker exec -i ... < file"`.
 
-### Seed data
+### No seed data
 
-`db/seed.sql` creates the 12 `monthly_budgets` rows and one bootstrap snapshot.
-It is all `ON CONFLICT DO NOTHING`, so it is safe to re-run. **The app needs a
-`monthly_budgets` row for the current month** — the snapshot job fails with a
-clear message if there isn't one.
+There is no seed step. The first time someone signs in, they get their own 12
+`monthly_budgets` rows (at 0) and an opening snapshot for the current month
+([`src/lib/users.ts`](src/lib/users.ts)), which is everything the dashboard
+and the monthly job need. `db/seed.sql`, which did this once for the whole
+database, is gone.
 
 ## Deploying
 
 ```bash
 cp .env.example .env                 # fill in POSTGRES_PASSWORD and DATABASE_URL
-npm run auth:setup -- --env .env     # set the login password
+npm run auth:setup -- --env .env     # Google sign-in settings
 docker compose up -d --build
 ```
 
@@ -79,7 +81,6 @@ First run only, to create the schema:
 
 ```bash
 docker compose exec -T postgres psql -U finance -d finance < db/schema.sql
-docker compose exec -T postgres psql -U finance -d finance < db/seed.sql
 ```
 
 Two services by default, `app` and `worker`, plus an optional `postgres` behind
@@ -140,71 +141,110 @@ transaction and is safe to re-run.
 
 **Apply it to a restored copy of a dump before the live database.**
 
+A database from before Google sign-in also needs
+[`db/migrations/0002_multi_user.sql`](db/migrations/0002_multi_user.sql), which
+adds `users` and a `user_id` on every table, and hands every existing row to
+one owner. Put the owner's Google email on the line marked `>>>` (it refuses to
+run with the placeholder), then run it — it works pasted into pgAdmin's Query
+Tool as well as through `psql`. That owner's first Google sign-in links to the
+existing data by verified email. **Deploy the new code right after**: the old
+code cannot write to the migrated schema.
+
 ## Authentication
 
-One password for the whole app — this is a single-user tracker, and there is no
-concept of separate accounts or per-user data.
+Sign-in is with Google, and each person who signs in has their own separate
+tracker: their own accounts, transactions, budgets, recurring payments and
+monthly snapshots. Nobody can see or change anyone else's.
+
+### Setting up Google
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create or
+   pick a project, then **APIs & Services → OAuth consent screen**. Choose
+   *External*, fill in the app name and your email, and add the scopes
+   `openid`, `email` and `profile` (all non-sensitive, so no Google review).
+   While the app is in *Testing*, only the test users you list there can sign
+   in — add everyone who will use it.
+2. **APIs & Services → Credentials → Create credentials → OAuth client ID**,
+   type *Web application*. Under *Authorized redirect URIs* add, exactly,
+   `<AUTH_URL>/api/auth/google/callback` — one per place you run it, e.g.
+   `http://localhost:3000/api/auth/google/callback` for development.
+3. Put the client ID and secret into the env file:
 
 ```bash
 npm run auth:setup                   # writes .env.local (local development)
 npm run auth:setup -- --env .env     # writes .env (docker compose)
 ```
 
-It prompts for a password (never echoed, never in argv or shell history) and
-edits the file itself, replacing any previous `AUTH_SECRET` / `AUTH_PASSWORD_HASH`
-rather than appending a second copy. Only the scrypt hash is stored, so reading
-the env file does not hand over a password you might have used elsewhere.
+It prompts for the client ID, client secret (not echoed), `AUTH_URL` and
+`AUTH_ALLOWED_EMAILS`, generates `AUTH_SECRET` if there is none, and removes the
+old `AUTH_PASSWORD_HASH`. Re-running it offers the current values as defaults.
 
-**Passwords may contain spaces**, including at the start and end, and they are
-significant. The setup script says so if yours has leading or trailing
-whitespace, because that is otherwise impossible to diagnose later.
+**Google needs a real https URL.** Redirect URIs must be `https` and use a
+domain name — `http://100.x.y.z:3000` is refused. The exception is
+`http://localhost`. On a Tailscale network, `tailscale serve --bg 3000` on the
+NAS publishes the app at `https://<machine>.<tailnet>.ts.net` with a real
+certificate, and that is what `AUTH_URL` should be.
 
 > **Do not redirect this into a file** (`npm run auth:setup >> .env`). Two
-> things go wrong and both are invisible until login fails: `npm run` prints its
-> own `> package@version script` banner on stdout, which lands in the file as if
-> it were a variable; and PowerShell's `>>` writes UTF-16LE with a BOM, which no
-> dotenv parser can read. The script writes the file itself for exactly this
-> reason, and repairs a file already damaged this way. If you need the values on
-> stdout, use `npm run --silent auth:setup -- --print`.
+> things go wrong and both are invisible until sign-in fails: `npm run` prints
+> its own `> package@version script` banner on stdout, which lands in the file
+> as if it were a variable; and PowerShell's `>>` writes UTF-16LE with a BOM,
+> which no dotenv parser can read. The script writes the file itself for
+> exactly this reason, and repairs a file already damaged this way.
 
 **Which file matters.** Next gives `.env.local` priority over `.env`, so a value
 in `.env.local` wins for `npm run dev` even if `.env` has a different one.
 Compose reads `.env` only.
 
-**Auth is fail-closed.** With those unset the app answers 503 to everything
-rather than serving the dashboard unauthenticated — a security control that
-quietly switches itself off when misconfigured is worse than none, because you
-cannot tell from the outside. Compose refuses to start without them.
+### Who can sign in
 
-The session is a signed cookie holding nothing but an expiry (30 days,
-HttpOnly, SameSite=Lax). There is no sessions table and therefore no
-per-session revocation: **rotate `AUTH_SECRET` and restart to sign out
-everywhere.**
+`AUTH_ALLOWED_EMAILS` is required: a comma-separated list of Google account
+emails, or `*` for any Google account at all. There is no default, because
+"unset" must not mean "everyone with a Google account". Someone not on the list
+is refused before anything is written for them.
+
+A new person on the list gets an empty tracker the first time they sign in.
+Remove someone and restart, and their session stops working on the next
+request — the email is in the session and checked every time.
+
+### How it works
+
+- [`src/app/api/auth/google/route.ts`](src/app/api/auth/google/route.ts) sends
+  the browser to Google with a random `state`, `nonce` and PKCE challenge, kept
+  in a signed ten-minute cookie.
+- [`src/app/api/auth/google/callback/route.ts`](src/app/api/auth/google/callback/route.ts)
+  checks `state`, exchanges the code (with the PKCE verifier and client secret)
+  for an ID token, checks its issuer, audience, expiry, nonce and
+  `email_verified`, applies the allowlist, and finds or creates the user
+  ([`src/lib/users.ts`](src/lib/users.ts)). Users are matched on Google's
+  stable `sub`, not on email.
+- The session is a signed cookie holding the user's id, email and an expiry
+  (30 days, HttpOnly, SameSite=Lax, Secure when `AUTH_URL` is https). The
+  middleware checks it on every request, and so does every route handler
+  ([`src/lib/session.ts`](src/lib/session.ts)), which then filters every query
+  by that user.
+- The database backs this up: `transactions` and `recurring_payments`
+  reference `accounts(id, user_id)`, so a row can only point at an account its
+  own user owns, even if a route forgot to check.
+
+There is no sessions table and therefore no per-session revocation: **rotate
+`AUTH_SECRET` and restart to sign out everyone.**
+
+**Auth is fail-closed.** With `AUTH_SECRET` or `AUTH_ALLOWED_EMAILS` unset the
+app answers 503 to everything rather than serving data — a security control
+that quietly switches itself off when misconfigured is worse than none, because
+you cannot tell from the outside. Compose refuses to start without any of them.
 
 | Variable | |
 |---|---|
 | `AUTH_SECRET` | signs session cookies; rotating it invalidates all sessions |
-| `AUTH_PASSWORD_HASH` | scrypt hash, `scrypt$N$r$p$salt$hash` |
-| `AUTH_COOKIE_SECURE` | set `true` only behind TLS — a Secure cookie is never sent over plain HTTP, so on a LAN it makes login silently fail |
-| `AUTH_DISABLED` | `true` runs with no login; set `NEXT_PUBLIC_AUTH_DISABLED=true` alongside it to hide the Sign out button. Local development only |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | the OAuth client, from the Google Cloud console |
+| `AUTH_URL` | the public origin; the redirect URI is this plus `/api/auth/google/callback` |
+| `AUTH_ALLOWED_EMAILS` | who may sign in: emails, comma-separated, or `*` |
+| `AUTH_COOKIE_SECURE` | overrides the Secure flag, which otherwise follows `AUTH_URL` |
 
 `/api/health` is deliberately public so the container healthcheck works before
 anyone logs in; it returns only `{"status":"ok"}`.
-
-Repeated failures from one address lock out for 15 minutes after 10 attempts.
-That counter is in memory, so it resets on restart — it is a speed bump against
-online guessing, not an access control. scrypt is what resists an attacker who
-has the hash.
-
-### What this is not
-
-There is one password, so anyone who has it sees everything. Adding real
-multi-user separation would mean `user_id` on every table, re-keying
-`monthly_budgets` and `monthly_balance_snapshot` (both currently global
-singletons by design), scoping all 35 queries, and rewriting both cron jobs as
-per-user loops — a project comparable in size to everything else in this repo.
-For separate people on one NAS, run separate compose projects with separate
-databases instead.
 
 ## Layout
 
@@ -212,11 +252,11 @@ databases instead.
 |---|---|
 | `src/app/page.tsx` | the dashboard |
 | `src/app/api/*` | route handlers; every mutating one runs in a transaction |
-| `src/lib/` | the shared vocabulary: `db`, `accounting`, `dates`, `categories`, `format`, `api` |
+| `src/lib/` | the shared vocabulary: `db`, `accounting`, `dates`, `categories`, `format`, `api`, and sign-in: `auth`, `google`, `session`, `users` |
 | `src/types/api.ts` | the request/response contract, shared by client and server |
 | `scripts/` | the two scheduled jobs — see [scripts/README.md](scripts/README.md) |
 | `worker.mjs` | the scheduler; runs jobs through one queue so they cannot race |
-| `db/` | `schema.sql`, `seed.sql`, and `migrations/` |
+| `db/` | `schema.sql` and `migrations/` |
 | `tests/` | see below |
 
 Two things about the data model that the column names do not tell you:
@@ -224,8 +264,8 @@ Two things about the data model that the column names do not tell you:
 - **`accounts.max` means two different things.** On a credit account it is the
   credit limit. On a bank account it is cumulative income received. Both are
   displayed, differently, by `AccountCard`.
-- **`monthly_budgets` has no `year`.** It is 12 rows, reused every year. That is
-  deliberate.
+- **`monthly_budgets` has no `year`.** It is 12 rows per user, reused every
+  year. That is deliberate.
 
 ## Tests
 
@@ -248,8 +288,9 @@ override.
 
 These exist to protect specific bugs, each named in the file it lives in: the
 transaction routes writing one row and not the other, the recurring job
-double-charging on a re-run, the snapshot job subtracting spending twice, and
-account deletion orphaning history.
+double-charging on a re-run, the snapshot job subtracting spending twice,
+account deletion orphaning history — and, in `user-isolation.test.ts`, one user
+reading or writing another's data through any route.
 
 ## Scripts
 
@@ -261,7 +302,7 @@ account deletion orphaning history.
 | `npm run typecheck` | `tsc --noEmit`, covering `scripts/` and `tests/` too |
 | `npm test` | vitest |
 | `npm run verify` | lint + typecheck + test |
-| `npm run auth:setup` | generate AUTH_SECRET and AUTH_PASSWORD_HASH |
+| `npm run auth:setup` | write the Google sign-in settings to an env file |
 | `npm run worker` | the scheduler, in the foreground |
 | `npm run process-recurring` | apply today's recurring payments |
 | `npm run process-monthly-snapshot` | roll the ledger to a new month |

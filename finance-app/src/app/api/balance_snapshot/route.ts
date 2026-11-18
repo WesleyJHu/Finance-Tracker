@@ -6,6 +6,7 @@ import {
   serializeBalanceSnapshot,
   serializeYearBalanceSummary,
 } from "@/lib/api"
+import { requireUser } from "@/lib/session"
 
 export const runtime = "nodejs"
 
@@ -24,6 +25,7 @@ export const runtime = "nodejs"
 // left as a loaded gun.
 export async function GET(req: NextRequest) {
   try {
+    const { userId } = await requireUser(req)
     const { searchParams } = new URL(req.url)
     const monthParam = searchParams.get("month")
     const yearParam = searchParams.get("year")
@@ -39,8 +41,8 @@ export async function GET(req: NextRequest) {
       const result = await pool.query(
         `SELECT month, starting_balance, ending_balance
            FROM "monthly_balance_snapshot"
-          WHERE year = $1 AND month IN (1, 12)`,
-        [year]
+          WHERE user_id = $1 AND year = $2 AND month IN (1, 12)`,
+        [userId, year]
       )
       const startingRow = result.rows.find((row) => row.month === 1)
       const endingRow = result.rows.find((row) => row.month === 12)
@@ -54,8 +56,8 @@ export async function GET(req: NextRequest) {
     }
 
     const result = await pool.query(
-      `SELECT * FROM "monthly_balance_snapshot" WHERE month = $1 AND year = $2`,
-      [period.month, period.year]
+      `SELECT * FROM "monthly_balance_snapshot" WHERE user_id = $1 AND month = $2 AND year = $3`,
+      [userId, period.month, period.year]
     )
 
     return NextResponse.json(result.rows.map(serializeBalanceSnapshot))

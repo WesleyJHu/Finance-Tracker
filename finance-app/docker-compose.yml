@@ -3,7 +3,7 @@
 # Secrets live in .env (see .env.example), never in this file.
 #
 #     cp .env.example .env               # DATABASE_URL, POSTGRES_* if you use the db profile
-#     npm run auth:setup -- --env .env   # generate the login password
+#     npm run auth:setup -- --env .env   # Google sign-in settings
 #     docker compose up -d --build
 #
 # IMPORTANT: by default this starts ONLY `app` and `worker`, and expects
@@ -16,10 +16,9 @@
 #
 #     docker compose --profile with-db up -d --build
 #     docker compose exec -T postgres psql -U finance -d finance < db/schema.sql
-#     docker compose exec -T postgres psql -U finance -d finance < db/seed.sql
 #
-# An existing database predating db/schema.sql needs
-# db/migrations/0001_integrity.sql applied first. See README.md.
+# An existing database predating db/schema.sql needs the files in
+# db/migrations/ applied in order first. See README.md.
 #
 # Container names match the ones already running on the NAS, so `docker compose
 # up -d` replaces them in place rather than leaving duplicates behind.
@@ -59,11 +58,15 @@ services:
       TZ: America/New_York
       NODE_ENV: production
       # Fail-closed: without these the app refuses every request rather than
-      # serving the dashboard unauthenticated. Generate with
+      # serving anything unauthenticated. Set with
       # `npm run auth:setup -- --env .env`.
       AUTH_SECRET: ${AUTH_SECRET:?set AUTH_SECRET in .env — see npm run auth:setup}
-      AUTH_PASSWORD_HASH: ${AUTH_PASSWORD_HASH:?set AUTH_PASSWORD_HASH in .env — see npm run auth:setup}
-      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      AUTH_ALLOWED_EMAILS: ${AUTH_ALLOWED_EMAILS:?set AUTH_ALLOWED_EMAILS in .env — see npm run auth:setup}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID in .env — see npm run auth:setup}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET in .env — see npm run auth:setup}
+      AUTH_URL: ${AUTH_URL:?set AUTH_URL in .env — see npm run auth:setup}
+      # Empty means "follow AUTH_URL" (Secure when it is https).
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-}
     ports:
       - "${APP_PORT:-3000}:3000"
     # The image's HEALTHCHECK hits /api/health, which round-trips the database.

@@ -12,36 +12,24 @@
  * succeeded inside the same transaction.
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
-import { NextRequest } from "next/server"
 import { pool } from "@/lib/db"
 import { DELETE, PATCH, POST } from "@/app/api/transactions/route"
-import { accountById, countTransactions, createAccount } from "./support/fixtures"
+import { accountById, countTransactions, createAccount, createUser } from "./support/fixtures"
 import { truncateAll } from "./support/database"
+import { authed, authedJson, type TestUser } from "./support/session"
 
-function post(body: unknown) {
-  return POST(
-    new NextRequest("http://localhost/api/transactions", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-  )
+let user: TestUser
+
+async function post(body: unknown) {
+  return POST(await authedJson(user, "http://localhost/api/transactions", "POST", body))
 }
 
-function patch(body: unknown) {
-  return PATCH(
-    new NextRequest("http://localhost/api/transactions", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    })
-  )
+async function patch(body: unknown) {
+  return PATCH(await authedJson(user, "http://localhost/api/transactions", "PATCH", body))
 }
 
-function del(id: string) {
-  return DELETE(
-    new NextRequest(`http://localhost/api/transactions?id=${id}`, { method: "DELETE" })
-  )
+async function del(id: string) {
+  return DELETE(await authed(user, `http://localhost/api/transactions?id=${id}`, { method: "DELETE" }))
 }
 
 const DROP_FLOOR = `ALTER TABLE accounts DROP CONSTRAINT IF EXISTS test_balance_floor`
@@ -49,6 +37,7 @@ const DROP_FLOOR = `ALTER TABLE accounts DROP CONSTRAINT IF EXISTS test_balance_
 beforeEach(async () => {
   await pool.query(DROP_FLOOR)
   await truncateAll(pool)
+  user = await createUser(pool)
 })
 
 afterAll(async () => {
@@ -59,6 +48,7 @@ afterAll(async () => {
 describe("POST /api/transactions", () => {
   it("writes both the transaction and the balance", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -79,6 +69,7 @@ describe("POST /api/transactions", () => {
 
   it("writes NOTHING when the account UPDATE fails (P0-1)", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -109,6 +100,7 @@ describe("POST /api/transactions", () => {
 
   it("does not leak the driver's error message to the client (P0-16)", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -133,6 +125,7 @@ describe("POST /api/transactions", () => {
     // transactions.description is NOT NULL and the route inserted
     // `description ?? null`, so every description-less POST failed.
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -152,6 +145,7 @@ describe("POST /api/transactions", () => {
 
   it("credits max, not balance, for income to a bank account", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -173,6 +167,7 @@ describe("POST /api/transactions", () => {
 
   it("rejects income to a credit account", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Amex",
       type: "Credit Card",
       balance: -100,
@@ -207,6 +202,7 @@ describe("POST /api/transactions", () => {
 describe("PATCH /api/transactions", () => {
   it("moves the balance by the delta only", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -228,8 +224,8 @@ describe("PATCH /api/transactions", () => {
   })
 
   it("corrects both accounts when a transaction moves between them", async () => {
-    const from = await createAccount(pool, { name: "From", type: "Checking", balance: 1000 })
-    const to = await createAccount(pool, { name: "To", type: "Checking", balance: 1000 })
+    const from = await createAccount(pool, { userId: user.id, name: "From", type: "Checking", balance: 1000 })
+    const to = await createAccount(pool, { userId: user.id, name: "To", type: "Checking", balance: 1000 })
 
     const created = await (
       await post({
@@ -248,6 +244,7 @@ describe("PATCH /api/transactions", () => {
 
   it("rolls back the transaction row when the balance update fails", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -281,6 +278,7 @@ describe("PATCH /api/transactions", () => {
 describe("DELETE /api/transactions", () => {
   it("restores the balance exactly", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,
@@ -302,6 +300,7 @@ describe("DELETE /api/transactions", () => {
 
   it("keeps the row when the balance restore fails", async () => {
     const account = await createAccount(pool, {
+      userId: user.id,
       name: "Checking",
       type: "Checking",
       balance: 1000,

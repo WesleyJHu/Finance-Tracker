@@ -6,16 +6,18 @@
  * silently change their behaviour.
  */
 import { afterAll, beforeEach, describe, expect, it } from "vitest"
-import { NextRequest } from "next/server"
 import { pool } from "@/lib/db"
 import { GET } from "@/app/api/transactions/route"
 import { toDateString } from "@/lib/dates"
-import { createAccount } from "./support/fixtures"
+import { createAccount, createUser, insertTransaction } from "./support/fixtures"
 import { truncateAll } from "./support/database"
+import { authed, type TestUser } from "./support/session"
 import type { Transaction } from "@/types/api"
 
+let user: TestUser
+
 async function get(query: string): Promise<{ status: number; body: Transaction[] }> {
-  const res = await GET(new NextRequest(`http://localhost/api/transactions${query}`))
+  const res = await GET(await authed(user, `http://localhost/api/transactions${query}`))
   return { status: res.status, body: await res.json() }
 }
 
@@ -26,15 +28,12 @@ async function insert(
   accountId: string,
   description = "x"
 ) {
-  await pool.query(
-    `INSERT INTO transactions (date, amount, description, category, account_id)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [date, amount, description, category, accountId]
-  )
+  await insertTransaction(pool, { accountId, date, amount, category, description })
 }
 
 beforeEach(async () => {
   await truncateAll(pool)
+  user = await createUser(pool)
 })
 
 afterAll(async () => {
@@ -43,7 +42,7 @@ afterAll(async () => {
 
 describe("GET /api/transactions?year=", () => {
   it("returns every transaction in the year regardless of month", async () => {
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
     await insert(toDateString(2025, 1, 1), 10, "grocery", account.id, "january")
     await insert(toDateString(2025, 6, 15), 20, "bills", account.id, "june")
     await insert(toDateString(2025, 12, 31), 30, "income", account.id, "december")
@@ -56,7 +55,7 @@ describe("GET /api/transactions?year=", () => {
   })
 
   it("excludes the adjacent years' boundary transactions", async () => {
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
     await insert(toDateString(2024, 12, 31), 999, "misc", account.id, "too old")
     await insert(toDateString(2025, 1, 1), 10, "misc", account.id, "in range start")
     await insert(toDateString(2025, 12, 31), 10, "misc", account.id, "in range end")
@@ -68,8 +67,8 @@ describe("GET /api/transactions?year=", () => {
   })
 
   it("combines with category and account filters", async () => {
-    const checking = await createAccount(pool, { name: "Checking", type: "Checking" })
-    const savings = await createAccount(pool, { name: "Savings", type: "Savings" })
+    const checking = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
+    const savings = await createAccount(pool, { userId: user.id, name: "Savings", type: "Savings" })
     await insert(toDateString(2025, 3, 1), 10, "grocery", checking.id, "checking grocery")
     await insert(toDateString(2025, 3, 1), 10, "bills", checking.id, "checking bills")
     await insert(toDateString(2025, 3, 1), 10, "grocery", savings.id, "savings grocery")
@@ -88,7 +87,7 @@ describe("GET /api/transactions?year=", () => {
 
 describe("GET /api/transactions — existing modes are unaffected", () => {
   it("still supports month+year", async () => {
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
     await insert(toDateString(2025, 3, 15), 10, "grocery", account.id, "march")
     await insert(toDateString(2025, 4, 1), 10, "grocery", account.id, "april")
 
@@ -98,7 +97,7 @@ describe("GET /api/transactions — existing modes are unaffected", () => {
   })
 
   it("still supports account-only, with no month or year", async () => {
-    const account = await createAccount(pool, { name: "Checking", type: "Checking" })
+    const account = await createAccount(pool, { userId: user.id, name: "Checking", type: "Checking" })
     await insert(toDateString(2020, 1, 1), 10, "grocery", account.id, "old")
     await insert(toDateString(2030, 1, 1), 10, "grocery", account.id, "future")
 

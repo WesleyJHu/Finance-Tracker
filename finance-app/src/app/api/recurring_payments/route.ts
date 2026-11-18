@@ -11,8 +11,26 @@ import type {
     RecurringPaymentCreateBody,
     RecurringPaymentUpdateBody,
 } from "@/types/api"
+import { requireUser } from "@/lib/session"
 
 export const runtime = "nodejs"
+
+/**
+ * 404s unless the account is the caller's.
+ *
+ * The composite foreign key on recurring_payments(account_id, user_id) would
+ * refuse another user's account anyway, but as a 500. This makes it the same
+ * "not found" as an account that does not exist.
+ */
+async function assertOwnAccount(userId: string, accountId: string) {
+    const result = await pool.query(
+        `SELECT 1 FROM accounts WHERE id = $1 AND user_id = $2`,
+        [accountId, userId]
+    )
+    if (result.rowCount === 0) {
+        throw new HttpError(404, "Account not found")
+    }
+}
 
 const UPDATABLE_COLUMNS = ["amount", "day_of_month", "description", "account_id", "category"] as const
 
@@ -29,9 +47,13 @@ function assertValidDayOfMonth(day: number) {
 }
 
 // Gets all recurring payments
-export async function GET() {
+export async function GET(req: NextRequest) {
     try {
-        const result = await pool.query(`SELECT * FROM "recurring_payments" ORDER BY id`)
+        const { userId } = await requireUser(req)
+        const result = await pool.query(
+            `SELECT * FROM "recurring_payments" WHERE user_id = $1 ORDER BY id`,
+            [userId]
+        )
         return NextResponse.json(result.rows.map(serializeRecurringPayment))
     } catch (error) {
         return handleRouteError(error, "GET /recurring_payments")
@@ -41,6 +63,7 @@ export async function GET() {
 // Creates a new recurring payment
 export async function POST(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
         const body: RecurringPaymentCreateBody = await req.json()
         const { amount, day_of_month, description, account_id, category } = body
 
@@ -56,13 +79,15 @@ export async function POST(req: NextRequest) {
         const parsedDay = requireNumber(day_of_month, "day of month")
         assertValidDayOfMonth(parsedDay)
 
+        await assertOwnAccount(userId, account_id)
+
         const result = await pool.query(
             `
-            INSERT INTO "recurring_payments" (amount, day_of_month, description, account_id, category)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO "recurring_payments" (user_id, amount, day_of_month, description, account_id, category)
+            VALUES ($1, $2, $3, $4, $5, $6)
             RETURNING *
             `,
-            [parsedAmount, parsedDay, description || null, account_id, category]
+            [userId, parsedAmount, parsedDay, description || null, account_id, category]
         )
 
         return NextResponse.json(serializeRecurringPayment(result.rows[0]), { status: 201 })
@@ -74,11 +99,16 @@ export async function POST(req: NextRequest) {
 // Updates a recurring payment
 export async function PATCH(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
         const body: RecurringPaymentUpdateBody = await req.json()
         const { id, amount, day_of_month, description, account_id, category } = body
 
         if (!id) {
             throw new HttpError(400, "ID is required")
+        }
+
+        if (account_id) {
+            await assertOwnAccount(userId, account_id)
         }
 
         let parsedAmount: number | undefined
@@ -112,10 +142,10 @@ export async function PATCH(req: NextRequest) {
             `
             UPDATE "recurring_payments"
             SET ${update.clause}, updated_at = CURRENT_TIMESTAMP
-            WHERE id = $${update.values.length + 1}
+            WHERE id = $${update.values.length + 1} AND user_id = $${update.values.length + 2}
             RETURNING *
             `,
-            [...update.values, id]
+            [...update.values, id, userId]
         )
 
         if (result.rowCount === 0) {
@@ -131,11 +161,12 @@ export async function PATCH(req: NextRequest) {
 // Deletes a recurring payment
 export async function DELETE(req: NextRequest) {
     try {
+        const { userId } = await requireUser(req)
         const id = await readDeleteId(req)
 
         const result = await pool.query(
-            `DELETE FROM "recurring_payments" WHERE id = $1 RETURNING *`,
-            [id]
+            `DELETE FROM "recurring_payments" WHERE id = $1 AND user_id = $2 RETURNING *`,
+            [id, userId]
         )
 
         if (result.rowCount === 0) {
